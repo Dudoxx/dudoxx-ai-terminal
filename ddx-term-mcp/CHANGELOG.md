@@ -1,5 +1,13 @@
 # @dudoxx/ddx-term-mcp
 
+## 0.1.2
+
+### Patch Changes
+
+- Use raw.githubusercontent.com URLs for the Dudoxx logos in README/INSTALLATION.
+  npm's README renderer strips both relative paths and data: URIs, so logos must be
+  absolute https from a trusted host. Repo is now public so raw URLs resolve.
+
 ## 0.1.1
 
 ### Patch Changes

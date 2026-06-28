@@ -1,6 +1,6 @@
 {
   "name": "@dudoxx/ddx-term-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "MCP stdio bridge — Claude Code to a shared tmux session. Thin client over tmux (no PTY): the 9 verbs + 2 helpers of the ddx-terminal-bridge agent channel.",
   "author": "Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>",
   "license": "MIT",
