@@ -91,7 +91,7 @@ in its tool list.
 | `DDX_TERM_ALLOWLIST` | _(unset)_ | path to a command allow-list file; unset = every command allowed |
 | `DDX_TERM_MAX_READ_LINES` | `2000` | hard cap on lines a single `term_read` returns |
 | `DDX_TERM_MAX_TERMINALS` | `16` | maximum terminals per session |
-| `DDX_TERM_BROKER_URL` | _(unset)_ | set → resolve `terminalId`↔window against a running broker; unset → standalone slug↔window map |
+| `DDX_TERM_BROKER_URL` | _(unset)_ | set → register/resolve terminals against a running broker so the **web view sees agent-created terminals**; unset → standalone (the MCP makes tmux windows directly, the broker/web never learn of them). **MUST include the broker's API prefix: `http://localhost:6481/api/v1`** (not the bare host — the broker mounts routes under `/api/v1`). |
 
 ## 5. Watch the agent live (optional)
 
