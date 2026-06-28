@@ -104,8 +104,10 @@ export const TermListEntrySchema = z.object({
   fgPid: z.number().int().nonnegative().nullable(),
   command: z.string(),
   cwd: z.string(),
-  /** Whether this is the tmux-active window. */
-  active: z.boolean(),
+  /** Whether this is the tmux-active window. Optional: a freshly-created
+   *  terminal's response may omit it (the broker may not yet know focus state);
+   *  defaults to false so create/list responses validate without it. */
+  active: z.boolean().default(false),
 });
 export type TermListEntry = z.infer<typeof TermListEntrySchema>;
 
