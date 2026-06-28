@@ -1,0 +1,71 @@
+# Automated release — Changesets.
+#
+# Flow:
+#   1. A PR includes a changeset (`.changeset/*.md`) describing the change + bump.
+#   2. On merge to main, this workflow runs `changeset version` and opens (or
+#      updates) a "Version Packages" PR that bumps versions + writes CHANGELOG.
+#   3. Merging THAT PR triggers `changeset publish` → npm publish of any package
+#      whose version changed (only @dudoxx/ddx-term-mcp is publishable; the rest
+#      are ignored in .changeset/config.json).
+#
+# Requires repo secret NPM_TOKEN (an npm automation/granular token with publish
+# rights to the @dudoxx scope).
+#
+# Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write       # create the Version Packages PR + tags
+  pull-requests: write  # open/update the PR
+  id-token: write       # npm provenance (--provenance)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck + test (gate)
+        run: |
+          pnpm -F @dudoxx/ddx-term-mcp typecheck
+          pnpm -F @dudoxx/ddx-term-mcp test
+
+      - name: Create Release PR or publish
+        uses: changesets/action@v1
+        with:
+          version: pnpm run version
+          publish: pnpm run release
+          commit: "chore: version packages"
+          title: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # setup-node wrote ~/.npmrc with `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`,
+          # so the publish step authenticates via NODE_AUTH_TOKEN.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

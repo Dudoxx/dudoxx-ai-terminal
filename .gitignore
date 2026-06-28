@@ -39,3 +39,6 @@ findings/*
 # Python fixture (ddx-cli-py)
 __pycache__/
 .venv/
+
+# npm auth (never commit — CI injects via setup-node)
+.npmrc
