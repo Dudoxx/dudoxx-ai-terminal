@@ -17,11 +17,43 @@
       "loading": "Snapshot wird geladen…",
       "error": "Snapshot nicht verfügbar"
     },
+    "sidePanel": {
+      "sessions": "Sitzungen",
+      "collapse": "Leiste einklappen",
+      "expand": "Leiste ausklappen"
+    },
+    "appearance": {
+      "fontSize": "Schriftgröße",
+      "fontSizeValue": "{size} px",
+      "fontSmaller": "Schrift verkleinern",
+      "fontLarger": "Schrift vergrößern",
+      "fontFamily": "Schriftart",
+      "colorTheme": "Farbschema",
+      "reset": "Auf Standard zurücksetzen"
+    },
+    "fonts": {
+      "jetbrains": "JetBrains Mono",
+      "fira": "Fira Code",
+      "menlo": "Menlo",
+      "system": "System-Monospace"
+    },
+    "themes": {
+      "dudoxxNavy": "Dudoxx Navy",
+      "midnightBlack": "Mitternachtsschwarz",
+      "solarizedDark": "Solarized Dunkel",
+      "solarizedLight": "Solarized Hell",
+      "dracula": "Dracula",
+      "gruvboxDark": "Gruvbox Dunkel",
+      "nord": "Nord",
+      "highContrast": "Hoher Kontrast"
+    },
     "aria": {
       "tabBar": "Terminal-Tabs",
       "tab": "Zu Terminal {title} wechseln",
       "terminal": "Terminal: {title}",
-      "closeTab": "Terminal {title} schließen"
+      "closeTab": "Terminal {title} schließen",
+      "sidePanel": "Terminal-Sitzungsleiste",
+      "sessionList": "Liste der Terminal-Sitzungen"
     }
   }
 }

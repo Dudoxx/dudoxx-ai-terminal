@@ -17,11 +17,43 @@
       "loading": "Loading snapshot…",
       "error": "Snapshot unavailable"
     },
+    "sidePanel": {
+      "sessions": "Sessions",
+      "collapse": "Collapse panel",
+      "expand": "Expand panel"
+    },
+    "appearance": {
+      "fontSize": "Font size",
+      "fontSizeValue": "{size}px",
+      "fontSmaller": "Decrease font size",
+      "fontLarger": "Increase font size",
+      "fontFamily": "Font family",
+      "colorTheme": "Color theme",
+      "reset": "Reset to defaults"
+    },
+    "fonts": {
+      "jetbrains": "JetBrains Mono",
+      "fira": "Fira Code",
+      "menlo": "Menlo",
+      "system": "System Mono"
+    },
+    "themes": {
+      "dudoxxNavy": "Dudoxx Navy",
+      "midnightBlack": "Midnight Black",
+      "solarizedDark": "Solarized Dark",
+      "solarizedLight": "Solarized Light",
+      "dracula": "Dracula",
+      "gruvboxDark": "Gruvbox Dark",
+      "nord": "Nord",
+      "highContrast": "High Contrast"
+    },
     "aria": {
       "tabBar": "Terminal tabs",
       "tab": "Switch to terminal {title}",
       "terminal": "Terminal: {title}",
-      "closeTab": "Close terminal {title}"
+      "closeTab": "Close terminal {title}",
+      "sidePanel": "Terminal session panel",
+      "sessionList": "Terminal session list"
     }
   }
 }

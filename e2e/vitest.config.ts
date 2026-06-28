@@ -23,6 +23,11 @@ export default defineConfig({
     },
   },
   test: {
+    // Process-level safety net: sweep leaked `ddx-e2e` tmux servers before AND
+    // after the run, catching servers whose per-suite afterAll was skipped due to
+    // an interrupt/timeout/crash (prevents pty-pool exhaustion). See
+    // helpers/global-tmux-sweep.ts.
+    globalSetup: ['./helpers/global-tmux-sweep.ts'],
     // Real tmux sessions have startup latency; interactive programs (uv, pnpm tsx)
     // need generous time. Latency suite runs 200 samples.
     testTimeout: 120_000,
@@ -36,7 +41,7 @@ export default defineConfig({
       },
     },
     // Report p50/p95 latency lines to stdout so CI captures them.
-    reporter: ['verbose'],
+    reporters: ['verbose'],
     include: ['**/*.e2e.spec.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
   },

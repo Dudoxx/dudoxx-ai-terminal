@@ -21,6 +21,46 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+/**
+ * Process-level safety net: every live sandbox registers its socket here so an
+ * interrupt (SIGINT/SIGTERM) or a normal `exit` synchronously kills the tmux
+ * server even when the per-suite afterAll hook never ran. Without this, an
+ * aborted test run leaks tmux servers that hold ptys until macOS exhausts the
+ * pty pool. See e2e/helpers/global-tmux-sweep.ts for the cross-run net.
+ */
+const LIVE_SOCKETS = new Set<string>();
+let exitHandlersInstalled = false;
+
+/** Synchronously kill the tmux server on a socket — safe inside exit handlers. */
+function killServerSync(socket: string): void {
+  try {
+    // -f /dev/null keeps teardown independent of ~/.tmux.conf, matching create().
+    execFileSync('tmux', ['-f', '/dev/null', '-S', socket, 'kill-server'], {
+      stdio: 'ignore',
+    });
+  } catch {
+    // already gone — best-effort
+  }
+}
+
+function installExitHandlersOnce(): void {
+  if (exitHandlersInstalled) return;
+  exitHandlersInstalled = true;
+  const reap = () => {
+    for (const socket of LIVE_SOCKETS) killServerSync(socket);
+    LIVE_SOCKETS.clear();
+  };
+  // 'exit' must be synchronous — execFileSync above satisfies that.
+  process.on('exit', reap);
+  // Convert signals to a clean exit so the 'exit' handler runs, then re-exit.
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+    process.on(sig, () => {
+      reap();
+      process.exit(130);
+    });
+  }
+}
+
 import { toTerminalId } from '@ddx/term-contract';
 
 import { AllowList } from '../../ddx-term-mcp/src/allow-list.js';
@@ -59,6 +99,10 @@ export class TmuxSandbox {
     const workDir = mkdtempSync(join(tmpdir(), `ddx-e2e-${sessionName}-`));
     const socket = join(workDir, 'e2e.sock');
     const tmux = new TmuxClient({ socket, session: sessionName });
+    // Register the socket + install exit handlers BEFORE boot, so an interrupt
+    // during the (non-trivial) newSession() latency window still reaps the server.
+    installExitHandlersOnce();
+    LIVE_SOCKETS.add(socket);
     // Boot: -f /dev/null prevents ~/.tmux.conf interference (_invariants.md MUST #1)
     // default-size NOT window-size manual (_invariants.md NEVER #1 — SPIKE footgun)
     await tmux.newSession(SANDBOX_COLS, SANDBOX_LINES);
@@ -82,6 +126,8 @@ export class TmuxSandbox {
     } catch {
       // already gone — teardown is best-effort
     }
+    // Deregister from the exit-handler net — the server is down, nothing to reap.
+    LIVE_SOCKETS.delete(this.socket);
     try {
       rmSync(this.workDir, { recursive: true, force: true });
     } catch {

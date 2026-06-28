@@ -1,11 +1,16 @@
 /**
  * src/app/[locale]/terminal/page.tsx — DDX Terminal UI page.
  *
- * Single page with a tab bar (one tab per terminalId). Clicking a tab:
+ * Three-zone layout: a collapsible left side panel (session nav + appearance
+ * controls) beside the active xterm view with a status bar. Selecting a session:
  *   1. Closes the current WS subscription (XtermClient.dispose()).
- *   2. Opens a new XtermClient for the new terminalId.
+ *   2. Opens a new XtermClient for the new terminalId (with current appearance).
  *   3. Fetches GET /api/v1/terminals/:id/snapshot to paint the current frame.
  * This is a WS resubscribe + snapshot, NOT a full reconnect (RESPONSIVENESS §2.8).
+ *
+ * Appearance (font size/family, color theme) is read from the localStorage store
+ * and applied LIVE to the active terminal via applyAppearance() — never a
+ * reconnect, so scrollback and the WS subscription survive a theme/size change.
  *
  * All user-facing strings via t(). Semantic OKLCH tokens only. Zero `any`.
  *
@@ -20,6 +25,8 @@ import type { TerminalDescriptor } from '@ddx/term-contract';
 import { toTerminalId } from '@ddx/term-contract';
 import type { ConnectionState, XtermClientCallbacks } from '@/lib/term/xterm-client';
 import { XtermClient } from '@/lib/term/xterm-client';
+import { useTermAppearance } from '@/lib/term/settings-store';
+import { TerminalSidePanel } from '@/components/term/TerminalSidePanel';
 
 // ── REST helpers ────────────────────────────────────────────────────────────
 
@@ -43,34 +50,56 @@ async function createTerminal(): Promise<TerminalDescriptor> {
   return res.json() as Promise<TerminalDescriptor>;
 }
 
+const COLLAPSE_KEY = 'ddx.terminal.sidePanelCollapsed';
+
 // ── Component ───────────────────────────────────────────────────────────────
 
-export default function TerminalPage() {
+export default function TerminalPage(): React.JSX.Element {
   const t = useTranslations('terminal');
+  const { appearance } = useTermAppearance();
 
   const [terminals, setTerminals] = useState<TerminalDescriptor[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [connState, setConnState] = useState<ConnectionState>('disconnected');
   const [loading, setLoading] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
 
   // Stable ref to the active XtermClient — avoids stale closure issues.
   const clientRef = useRef<XtermClient | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // The appearance to hand a freshly-constructed client. Kept in a ref so
+  // switchTo() always reads the latest without being a dependency (which would
+  // re-run the switch effect — and thus reconnect — on every appearance change).
+  const appearanceRef = useRef(appearance);
+  appearanceRef.current = appearance;
+
+  // ── Restore collapsed state ────────────────────────────────────────────
+  useEffect(() => {
+    try {
+      setCollapsed(window.localStorage.getItem(COLLAPSE_KEY) === '1');
+    } catch { /* storage disabled — default expanded */ }
+  }, []);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   // ── Load terminal list on mount ────────────────────────────────────────
-
   useEffect(() => {
     let cancelled = false;
 
     // Refresh the tab list: initial load + poll, so terminals created out-of-band
-    // by the AGENT (via the MCP) appear in the human's tab bar without a reload.
-    // The active terminal's xterm/WS is untouched — we only reconcile the list.
+    // by the AGENT (via the MCP) appear in the human's session list without a
+    // reload. The active terminal's xterm/WS is untouched — we only reconcile.
     const refresh = (initial: boolean) =>
       fetchTerminals()
         .then((list) => {
           if (cancelled) return;
           setTerminals(list);
-          // Auto-select the first terminal only on the very first successful load.
           if (initial && list.length > 0 && list[0]) {
             setActiveId((cur) => cur ?? list[0]!.terminalId);
           }
@@ -85,40 +114,29 @@ export default function TerminalPage() {
     return () => { cancelled = true; clearInterval(poll); };
   }, []);
 
-  // ── Switch active terminal (tab click or initial load) ─────────────────
-
+  // ── Switch active terminal (selection or initial load) ─────────────────
   const switchTo = useCallback(async (id: string, el: HTMLDivElement) => {
-    // Tear down the previous client — closes its WS subscription.
     clientRef.current?.dispose();
     clientRef.current = null;
-
-    // Clear the container so xterm can open fresh.
     el.innerHTML = '';
 
     const terminalId = toTerminalId(id);
-
     const callbacks: XtermClientCallbacks = {
       onStateChange: (state) => setConnState(state),
       onData: () => { /* keystrokes handled internally by xterm */ },
-      // After an auto-reconnect (e.g. the broker restarted), re-fetch the
-      // snapshot so the just-reconnected socket repaints the current frame —
-      // same resubscribe+snapshot contract as a tab switch.
       onReconnect: () => fetchSnapshot(id),
     };
 
-    const client = new XtermClient(terminalId, el, callbacks);
+    // Construct with the CURRENT appearance so the first paint already matches
+    // the user's persisted font/theme — no flash of default styling.
+    const client = new XtermClient(terminalId, el, callbacks, appearanceRef.current);
     clientRef.current = client;
 
-    // Connect WS + attach xterm.
     await client.connect();
-
-    // Snapshot fetch to paint current frame before first live output arrives.
-    // RESPONSIVENESS §2.8: this is the tab-switch path — resubscribe + snapshot.
     const snapshot = await fetchSnapshot(id);
     client.restoreSnapshot(snapshot);
   }, []);
 
-  // Re-attach whenever activeId or the container changes.
   useEffect(() => {
     if (!activeId || !containerRef.current) return;
     const el = containerRef.current;
@@ -129,8 +147,14 @@ export default function TerminalPage() {
     };
   }, [activeId, switchTo]);
 
-  // ── Create new terminal ────────────────────────────────────────────────
+  // ── Apply appearance changes LIVE to the active terminal ────────────────
+  // Separate from switchTo so a font/theme change re-styles in place instead of
+  // reconnecting (which would drop scrollback + re-fetch the snapshot).
+  useEffect(() => {
+    clientRef.current?.applyAppearance(appearance);
+  }, [appearance]);
 
+  // ── Create new terminal ────────────────────────────────────────────────
   const handleNew = useCallback(async () => {
     try {
       const descriptor = await createTerminal();
@@ -141,82 +165,45 @@ export default function TerminalPage() {
     }
   }, []);
 
-  // ── Active terminal descriptor (for status bar) ─────────────────────
-
-  const activeDescriptor = terminals.find((t) => t.terminalId === activeId);
+  const activeDescriptor = terminals.find((term) => term.terminalId === activeId);
 
   // ── Render ─────────────────────────────────────────────────────────────
-
   return (
-    <main className="flex flex-col min-h-dvh bg-background text-foreground">
+    <main className="flex h-dvh min-h-0 bg-background text-foreground">
 
-      {/* ── Tab bar ─────────────────────────────────────────────────── */}
-      <nav
-        role="tablist"
-        aria-label={t('aria.tabBar')}
-        className="flex items-center gap-1 px-2 pt-2 bg-surface border-b border-border overflow-x-auto shrink-0"
-      >
-        {loading ? (
-          <span className="text-muted-foreground text-sm px-2 py-1">
-            {t('connecting')}
-          </span>
-        ) : terminals.length === 0 ? (
-          <span className="text-muted-foreground text-sm px-2 py-1">
-            {t('noTerminals')}
-          </span>
-        ) : (
-          terminals.map((descriptor) => {
-            const isActive = descriptor.terminalId === activeId;
-            return (
-              <button
-                key={descriptor.terminalId}
-                role="tab"
-                aria-selected={isActive}
-                aria-label={t('aria.tab', { title: descriptor.title })}
-                onClick={() => setActiveId(descriptor.terminalId)}
-                className={[
-                  'px-3 py-1.5 rounded-t text-sm font-medium transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  isActive
-                    ? 'bg-tab-active text-foreground border-b-2 border-primary'
-                    : 'bg-tab-inactive text-muted-foreground hover:bg-tab-hover hover:text-foreground',
-                ].join(' ')}
-              >
-                {t('tabLabel', { title: descriptor.title })}
-              </button>
-            );
-          })
-        )}
-
-        {/* New terminal button */}
-        <button
-          onClick={() => void handleNew()}
-          className="ml-auto px-3 py-1.5 rounded text-sm text-muted-foreground hover:text-foreground hover:bg-tab-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
-          aria-label={t('newTerminal')}
-        >
-          + {t('newTerminal')}
-        </button>
-      </nav>
-
-      {/* ── Status bar ──────────────────────────────────────────────── */}
-      {activeDescriptor && (
-        <div className="flex items-center gap-4 px-3 py-1 bg-surface-muted border-b border-border text-xs text-muted-foreground shrink-0">
-          <ConnectionBadge state={connState} t={t} />
-          <span>{t('status.command', { command: activeDescriptor.command })}</span>
-          {activeDescriptor.fgPid !== null && (
-            <span>{t('status.pid', { pid: activeDescriptor.fgPid })}</span>
-          )}
-        </div>
-      )}
-
-      {/* ── xterm container ─────────────────────────────────────────── */}
-      <div
-        ref={containerRef}
-        role="region"
-        aria-label={activeDescriptor ? t('aria.terminal', { title: activeDescriptor.title }) : t('pageTitle')}
-        className="flex-1 bg-term-bg overflow-hidden min-h-0"
+      {/* ── Left side panel: session nav + appearance ─────────────────── */}
+      <TerminalSidePanel
+        terminals={terminals}
+        activeId={activeId}
+        collapsed={collapsed}
+        loading={loading}
+        onSelect={setActiveId}
+        onCreate={() => void handleNew()}
+        onToggleCollapsed={toggleCollapsed}
       />
 
+      {/* ── Terminal area ─────────────────────────────────────────────── */}
+      <section className="flex min-w-0 flex-1 flex-col">
+
+        {/* Status bar */}
+        {activeDescriptor && (
+          <div className="flex items-center gap-4 px-3 py-1 bg-surface-muted text-xs text-muted-foreground shrink-0 shadow-elev-1">
+            <ConnectionBadge state={connState} t={t} />
+            <span>{t('status.command', { command: activeDescriptor.command })}</span>
+            {activeDescriptor.fgPid !== null && (
+              <span>{t('status.pid', { pid: activeDescriptor.fgPid })}</span>
+            )}
+          </div>
+        )}
+
+        {/* xterm container */}
+        <div
+          ref={containerRef}
+          role="region"
+          aria-label={activeDescriptor ? t('aria.terminal', { title: activeDescriptor.title }) : t('pageTitle')}
+          className="flex-1 bg-term-bg overflow-hidden min-h-0"
+        />
+      </section>
     </main>
   );
 }
@@ -228,7 +215,7 @@ interface BadgeProps {
   t: ReturnType<typeof useTranslations<'terminal'>>;
 }
 
-function ConnectionBadge({ state, t }: BadgeProps) {
+function ConnectionBadge({ state, t }: BadgeProps): React.JSX.Element {
   const label: Record<ConnectionState, string> = {
     connecting:   t('connecting'),
     connected:    t('connected'),

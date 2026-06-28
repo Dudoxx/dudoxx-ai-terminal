@@ -7,12 +7,23 @@ single page with a tab bar — one tab per `terminalId` — connected to the bro
 per-terminal WebSocket. Default port **3460** (`next dev --port 3460`).
 
 ## Ownership
-- `src/app/[locale]/terminal/page.tsx` — the terminal page (tab bar + active
-  xterm view).
-- `src/lib/term/xterm-client.ts` — the `XtermClient` wrapper (xterm + fit / webgl
-  / web-links addons, WS plumbing, `restoreSnapshot`).
+- `src/app/[locale]/terminal/page.tsx` — the terminal page: 3-zone shell
+  (collapsible side panel | status bar + active xterm view). Owns session
+  selection, live-appearance application, and collapsed-state persistence.
+- `src/lib/term/xterm-client.ts` — the `XtermClient` wrapper (xterm + web-links
+  addon, WS plumbing, `restoreSnapshot`, `applyAppearance` for live font/theme).
+- `src/lib/term/appearance.ts` — color-theme registry (8 themes), font registry,
+  font-size bounds, `TermAppearance` model. THE one place raw hex is allowed
+  (xterm ITheme can't parse OKLCH — same exemption as the `--xterm-*-hex` vars).
+- `src/lib/term/settings-store.ts` — localStorage-backed appearance store +
+  `useTermAppearance` hook (useSyncExternalStore, cross-tab sync).
+- `src/components/term/TerminalSidePanel.tsx` — collapsible left nav: session
+  list + `AppearanceControls`.
+- `src/components/term/AppearanceControls.tsx` — font-size stepper, font + theme
+  pickers (custom controls, no native `<select>`).
 - `src/app/[locale]/layout.tsx`, `globals.css` — app shell + theme tokens.
 - `src/i18n/{routing,request}.ts` — next-intl wiring (`[locale]` prefix).
+- `messages/{en,de,fr}.json` — locale messages (lockstep; `terminal` namespace).
 - `src/proxy.ts` — request proxy to the broker.
 
 ## Local Contracts

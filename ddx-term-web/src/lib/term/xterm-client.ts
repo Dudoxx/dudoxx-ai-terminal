@@ -26,27 +26,23 @@ import type {
 } from '@ddx/term-contract';
 import { ServerFrameSchema, InputFrameSchema } from '@ddx/term-contract';
 
-/**
- * Read a CSS custom property from :root at runtime.
- * xterm.js cannot consume OKLCH or CSS var() references directly, so we
- * resolve the hex mirrors declared in globals.css @theme at mount time.
- */
-function cssVar(name: string, fallback: string): string {
-  if (typeof window === 'undefined') return fallback;
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
-  return value || fallback;
-}
+import {
+  DEFAULT_APPEARANCE,
+  resolveFont,
+  resolveTheme,
+  type TermAppearance,
+} from './appearance';
 
-/** Build xterm ITheme from the @theme hex-mirror CSS vars. */
-function buildXtermTheme(): Record<string, string> {
-  return {
-    background:         cssVar('--xterm-bg-hex',        '#18192b'),
-    foreground:         cssVar('--xterm-fg-hex',        '#e8e9f0'),
-    cursor:             cssVar('--xterm-cursor-hex',    '#7c8aff'),
-    selectionBackground: cssVar('--xterm-selection-hex', '#3a3d60'),
-  };
+/**
+ * Build an xterm ITheme from a selected color template (appearance.ts registry).
+ * xterm.js consumes plain hex strings — it cannot parse OKLCH/CSS vars — so the
+ * full 16-color ANSI palette lives in the TS theme registry, not globals.css.
+ * This replaces the old @theme-hex-mirror lookup: themes are now user-selectable
+ * data, not a single hardcoded palette.
+ */
+function buildXtermTheme(themeId: string): Record<string, string> {
+  const { colors } = resolveTheme(themeId);
+  return { ...colors };
 }
 
 /** WS URL builder — ALWAYS same-origin. The custom Next server (server.mjs)
@@ -110,11 +106,17 @@ export class XtermClient {
   private static readonly COLS = 120;
   private static readonly ROWS = 30;
 
+  /** Current appearance (font + theme). Mutated live via applyAppearance(). */
+  private appearance: TermAppearance;
+
   constructor(
     private readonly terminalId: TerminalId,
     private readonly container: HTMLElement,
     private readonly callbacks: XtermClientCallbacks,
-  ) {}
+    appearance: TermAppearance = DEFAULT_APPEARANCE,
+  ) {
+    this.appearance = appearance;
+  }
 
   /** Connect the WebSocket and attach xterm.js to the container element. */
   async connect(): Promise<void> {
@@ -145,13 +147,15 @@ export class XtermClient {
       cols: XtermClient.COLS,
       rows: XtermClient.ROWS,
       cursorBlink: true,
-      fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-      fontSize: 14,
+      // Font family + size come from the user's persisted appearance (defaults
+      // mirror the prior hardcoded values). Changing them re-styles the live
+      // terminal via applyAppearance() — never a reconnect (scrollback is kept).
+      fontFamily: resolveFont(this.appearance.fontId).stack,
+      fontSize: this.appearance.fontSize,
       lineHeight: 1.2,
-      // Theme hex values are resolved from globals.css @theme hex-mirror vars
-      // at runtime via buildXtermTheme(). xterm.js cannot consume CSS vars or
-      // OKLCH directly — the @theme block in globals.css is the single source.
-      theme: buildXtermTheme(),
+      // Theme is a user-selected color template from the appearance registry.
+      // xterm.js consumes plain hex (no OKLCH/CSS vars), so the palette is TS data.
+      theme: buildXtermTheme(this.appearance.themeId),
       allowTransparency: true,
       scrollback: 5000,
     });
@@ -189,6 +193,26 @@ export class XtermClient {
       const normalized = snapshotText.replace(/\r?\n/g, '\r\n');
       this.terminal.write(normalized);
     }
+  }
+
+  /**
+   * Apply a new appearance (font family/size + color theme) to the LIVE terminal
+   * without reconnecting — xterm exposes mutable `options`, so we set them in
+   * place and the existing scrollback + WS subscription are untouched. The grid
+   * stays pinned at COLS×ROWS: a larger font means a bigger pane, never a
+   * renegotiated column count (the broker owns dims). Idempotent and safe to call
+   * before connect() — it stashes the value for the next Terminal construction.
+   */
+  applyAppearance(appearance: TermAppearance): void {
+    this.appearance = appearance;
+    const term = this.terminal;
+    if (!term) return; // not yet connected — picked up at construction time
+    term.options.fontFamily = resolveFont(appearance.fontId).stack;
+    term.options.fontSize = appearance.fontSize;
+    term.options.theme = buildXtermTheme(appearance.themeId);
+    // Re-assert the pinned grid: changing fontSize can make xterm recompute its
+    // internal geometry, so explicitly hold the broker's canonical dimensions.
+    term.resize(XtermClient.COLS, XtermClient.ROWS);
   }
 
   /** Tear down the WS and xterm instance. */

@@ -25,6 +25,19 @@
 - **MUST** keep `destroyTerminal` / registry mutations idempotent and reconcile-safe
   (`reconcileRegistry()` re-adopts live windows on broker restart; session is NOT killed).
 
+## tmux pty-leak prevention (e2e)
+- **MUST** reap every throwaway `ddx-e2e` tmux server even on an interrupted/timed-out
+  run. Three layers enforce this: per-suite `afterAll → destroy()`, process exit/signal
+  handlers in `TmuxSandbox` (`e2e/helpers/tmux-sandbox.ts`), and a vitest `globalSetup`
+  cross-run sweep (`e2e/helpers/global-tmux-sweep.ts`). A leaked server holds a child
+  shell's pty; accumulated leaks exhaust macOS `kern.tty.ptmx_max` (511) until NO new pty
+  can be allocated (Ghostty/tmux fail with `Device not configured`). Observed 2026-06-28.
+- The sweep matches ONLY the `ddx-e2e` marker (session name + socket dir) — it never
+  touches the user's tmux or the broker's `ddx-shared` session.
+- Recovery if the pool is already exhausted: `pkill -KILL -f 'ddx-term-e2e'` reaps the
+  servers and releases their ptys (`/dev/ttys*` device-node count is NOT a live-usage
+  metric — measure with `ps -ax -o tty | grep ttys | sort -u | wc -l`).
+
 ## send / capture mechanics (MCP)
 - **MUST** send via `tmux send-keys -l <text>` (LITERAL) + a SEPARATE `Enter` key event.
   **NEVER** send `\n` in the literal text. Control keys → `term_signal`, never `term_send`.
