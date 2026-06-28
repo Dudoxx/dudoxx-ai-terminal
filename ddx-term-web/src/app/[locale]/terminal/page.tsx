@@ -61,19 +61,28 @@ export default function TerminalPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchTerminals()
-      .then((list) => {
-        if (cancelled) return;
-        setTerminals(list);
-        if (list.length > 0 && list[0]) {
-          setActiveId(list[0].terminalId);
-        }
-      })
-      .catch(console.error)
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
+
+    // Refresh the tab list: initial load + poll, so terminals created out-of-band
+    // by the AGENT (via the MCP) appear in the human's tab bar without a reload.
+    // The active terminal's xterm/WS is untouched — we only reconcile the list.
+    const refresh = (initial: boolean) =>
+      fetchTerminals()
+        .then((list) => {
+          if (cancelled) return;
+          setTerminals(list);
+          // Auto-select the first terminal only on the very first successful load.
+          if (initial && list.length > 0 && list[0]) {
+            setActiveId((cur) => cur ?? list[0]!.terminalId);
+          }
+        })
+        .catch(console.error)
+        .finally(() => {
+          if (initial && !cancelled) setLoading(false);
+        });
+
+    void refresh(true);
+    const poll = setInterval(() => void refresh(false), 2000);
+    return () => { cancelled = true; clearInterval(poll); };
   }, []);
 
   // ── Switch active terminal (tab click or initial load) ─────────────────
