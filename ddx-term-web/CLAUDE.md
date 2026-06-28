@@ -4,7 +4,7 @@
 The human-facing UI for ddx-terminal-bridge: a Next.js 16 (App Router, React 19,
 Tailwind v4, next-intl) app that renders the shared terminals with xterm.js. A
 single page with a tab bar — one tab per `terminalId` — connected to the broker's
-per-terminal WebSocket. Default port **3460** (`next dev --port 3460`).
+per-terminal WebSocket. Default port **13340** (`next dev --port 13340`).
 
 ## Ownership
 - `src/app/[locale]/terminal/page.tsx` — the terminal page: 3-zone shell
@@ -44,7 +44,7 @@ per-terminal WebSocket. Default port **3460** (`next dev --port 3460`).
 ## Verification
 `pnpm --filter ddx-term-web typecheck` · `pnpm --filter ddx-term-web lint` ·
 `pnpm --filter ddx-term-web test` (vitest/jsdom). Manual: `pnpm --filter
-ddx-term-web dev` → http://localhost:3460 with the broker (6481) running; switch
+ddx-term-web dev` → http://localhost:13340 with the broker (13330) running; switch
 tabs and confirm snapshot paint + live frames per terminal.
 
 ---

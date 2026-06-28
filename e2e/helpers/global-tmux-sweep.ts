@@ -94,7 +94,6 @@ function sweep(label: string): number {
   const pids = findLeakedTmuxPids();
   if (pids.length === 0) return 0;
   const n = killPids(pids);
-  // eslint-disable-next-line no-console
   console.warn(`[e2e tmux sweep:${label}] reaped ${n} leaked ddx-e2e tmux server(s): ${pids.join(', ')}`);
   return n;
 }

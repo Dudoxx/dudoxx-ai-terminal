@@ -23,6 +23,8 @@
     "build:types": "tsc -p tsconfig.types.json",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint src --fix",
+    "lint:check": "eslint src",
     "test": "vitest run"
   },
   "peerDependencies": {
@@ -33,7 +35,7 @@
     "vitest": "^2.1.0",
     "zod": "^4.3.6"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "author": "Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>"
 }

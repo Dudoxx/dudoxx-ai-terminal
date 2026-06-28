@@ -1,6 +1,6 @@
 ---
 title: "ddx-term-broker"
-description: The NestJS 11 broker — port 6481, the terminalId↔windowId registry, REST CRUD, a raw ws.Server per-terminal fan-out, and reconcileRegistry on restart.
+description: The NestJS 11 broker — port 13330, the terminalId↔windowId registry, REST CRUD, a raw ws.Server per-terminal fan-out, and reconcileRegistry on restart.
 audience: developers
 tags: [broker, nestjs, websocket, control-mode, registry, reconcile]
 updated: 2026-06-28
@@ -11,7 +11,7 @@ updated: 2026-06-28
 **Location:** `ddx-term-broker`
 **Role:** the **human channel** and the owner of **canonical state**.
 **Stack:** NestJS 11 (built with `nest build` + swc), Jest for tests.
-**Port:** **6481** (`DDX_TERM_BROKER_PORT`; host `DDX_TERM_BROKER_HOST`, default `127.0.0.1`).
+**Port:** **13330** (`DDX_TERM_BROKER_PORT`; host `DDX_TERM_BROKER_HOST`, default `127.0.0.1`).
 **Published:** No — `private`, `UNLICENSED`. Holds the PTY (`node-pty`) on the broker
 side, which is correct: the broker is the control-mode attach point, the MCP is not.
 

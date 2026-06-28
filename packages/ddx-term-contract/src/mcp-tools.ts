@@ -38,6 +38,8 @@ export const TermErrorCodeSchema = z.enum([
   'COMMAND_DENIED',
   'INVALID_REGEX',
   'TMUX_ERROR',
+  'PORT_CONFLICT',
+  'STACK_LAUNCH_FAILED',
 ]);
 export type TermErrorCode = z.infer<typeof TermErrorCodeSchema>;
 
@@ -51,6 +53,8 @@ export const TERM_ERROR_RETRIABLE: Readonly<Record<TermErrorCode, boolean>> = {
   COMMAND_DENIED: false,
   INVALID_REGEX: false,
   TMUX_ERROR: true,
+  PORT_CONFLICT: false,
+  STACK_LAUNCH_FAILED: false,
 };
 
 /**
@@ -67,6 +71,8 @@ export const TermErrorSchema = z.discriminatedUnion('code', [
   z.object({ code: z.literal('COMMAND_DENIED'), message: z.string(), retriable: z.literal(false) }),
   z.object({ code: z.literal('INVALID_REGEX'), message: z.string(), retriable: z.literal(false) }),
   z.object({ code: z.literal('TMUX_ERROR'), message: z.string(), retriable: z.literal(true) }),
+  z.object({ code: z.literal('PORT_CONFLICT'), message: z.string(), retriable: z.literal(false) }),
+  z.object({ code: z.literal('STACK_LAUNCH_FAILED'), message: z.string(), retriable: z.literal(false) }),
 ]);
 export type TermError = z.infer<typeof TermErrorSchema>;
 

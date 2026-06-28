@@ -5,10 +5,25 @@
  *   Helmet → WsAdapter → CORS → global prefix → HttpExceptionFilter →
  *   LoggingInterceptor → Swagger → listen → BootSummaryService.renderAll()
  *
- * Port: DDX_TERM_BROKER_PORT env (default 6481, matching compose dev band).
+ * Port: DDX_TERM_BROKER_PORT env (default 13330, from @ddx/term-contract).
+ * Overridable via a `.env` file (project CWD, then global ~/.ddx-term/.env),
+ * loaded first below so the env reads see it. When the MCP supervisor spawns
+ * this process the env is already inherited; this covers the standalone
+ * `pnpm dev` / `node dist/main.js` path.
  *
  * Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>
  */
+
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+import { config as dotenvConfig } from 'dotenv';
+
+// Layered .env load — override:false so an already-set env var always wins.
+for (const envPath of [join(process.cwd(), '.env'), join(homedir(), '.ddx-term', '.env')]) {
+  if (existsSync(envPath)) dotenvConfig({ path: envPath, override: false });
+}
 
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
@@ -23,6 +38,7 @@ import { LoggingInterceptor } from './platform/common/interceptors/logging.inter
 import { BrokerLogger } from './platform/common/logging/broker-logger';
 import { BootSummaryService } from './platform/common/boot/boot-summary.service';
 import { TermGateway } from './modules/gateway/term.gateway';
+import { resolvePorts } from '@ddx/term-contract';
 
 async function bootstrap(): Promise<void> {
   const brokerLogger = new BrokerLogger();
@@ -37,7 +53,8 @@ async function bootstrap(): Promise<void> {
   // ws.Server({ noServer: true }) and is attached to the HTTP server's `upgrade`
   // event below (after listen, so getHttpServer() is the real listening server).
 
-  const port = parseInt(process.env['DDX_TERM_BROKER_PORT'] ?? '6481', 10);
+  // Resolve broker port from env via the single source of truth (default 13330).
+  const { brokerPort: port } = resolvePorts(process.env);
   const host = process.env['DDX_TERM_BROKER_HOST'] ?? '127.0.0.1';
 
   // Security — apply before any route handling.
@@ -107,5 +124,5 @@ process.on('uncaughtException', (err: Error) => {
   process.stderr.write(`[uncaughtException] ${err.message}\n`);
 });
 
-// eslint-disable-next-line @typescript-eslint/no-floating-promises
-bootstrap();
+// Fire-and-forget entrypoint; fatal errors surface via the process handlers above.
+void bootstrap();

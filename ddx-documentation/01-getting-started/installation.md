@@ -69,8 +69,8 @@ This produces `ddx-term-mcp/dist/server.js`, the binary the MCP client spawns.
 
 | Component | Command | Port / transport |
 |---|---|---|
-| Broker | `pnpm dev` (part of turbo dev) | HTTP/WS **6481** |
-| Web | `pnpm dev` (part of turbo dev) | HTTP **3460** |
+| Broker | `pnpm dev` (part of turbo dev) | HTTP/WS **13330** |
+| Web | `pnpm dev` (part of turbo dev) | HTTP **13340** |
 | MCP server | launched by the MCP client over **stdio** | not a dev process |
 
 The MCP server is **not** part of `pnpm dev`. It is spawned over stdio by the MCP

@@ -27,11 +27,11 @@ integrating with the monorepo. It is a static Markdown tree — no build step.
 
 ### 01 — Getting started
 - [Installation](./01-getting-started/installation.md) — prerequisites (Node >= 20.9, pnpm 10.24, tmux), `pnpm install`, one-command bring-up.
-- [Quickstart](./01-getting-started/quickstart.md) — `pnpm dev` → web at :3460, register the MCP server, attach natively via iTerm2 `tmux -CC`.
+- [Quickstart](./01-getting-started/quickstart.md) — `pnpm dev` → web at :13340, register the MCP server, attach natively via iTerm2 `tmux -CC`.
 
 ### 02 — Packages
 - [`@ddx/term-contract`](./02-packages/contract.md) — the shared zod schemas, WS frames, MCP tool I/O, the triple (ESM/CJS/types) build.
-- [`ddx-term-broker`](./02-packages/broker.md) — NestJS 11, port 6481, the registry, REST CRUD, raw `ws.Server` fan-out, `reconcileRegistry`.
+- [`ddx-term-broker`](./02-packages/broker.md) — NestJS 11, port 13330, the registry, REST CRUD, raw `ws.Server` fan-out, `reconcileRegistry`.
 - [`@dudoxx/ddx-term-mcp`](./02-packages/mcp.md) — the stdio MCP server, the thin tmux client, the NO-PTY invariant.
 - [`ddx-term-web`](./02-packages/web.md) — Next.js 16, xterm.js, one WS per terminalId, snapshot restore.
 
@@ -53,9 +53,9 @@ integrating with the monorepo. It is a static Markdown tree — no build step.
 | Package | Role | Port / transport | Published? |
 |---|---|---|---|
 | `@ddx/term-contract` (`packages/ddx-term-contract`) | Shared zod types | library (ESM+CJS+types) | No (bundled into MCP) |
-| `ddx-term-broker` | Human channel + canonical state | HTTP/WS **6481** | No |
+| `ddx-term-broker` | Human channel + canonical state | HTTP/WS **13330** | No |
 | `@dudoxx/ddx-term-mcp` | Agent channel: MCP stdio server | stdio | **Yes** (`@dudoxx/` scope, MIT) |
-| `ddx-term-web` | Next.js 16 xterm.js UI | HTTP **3460** | No |
+| `ddx-term-web` | Next.js 16 xterm.js UI | HTTP **13340** | No |
 
 > `ddx-cli-py` / `ddx-cli-ts` are interactive e2e-target fixtures, **not** workspace
 > packages — never built or published from here.

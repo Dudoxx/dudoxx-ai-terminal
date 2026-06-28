@@ -255,6 +255,28 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Rename a terminal's human-facing title: `tmux rename-window` + update the
+   * registry `title` in place. The terminalId↔windowId binding is the durable
+   * identity and is NEVER changed by a rename — only the display label moves.
+   * Reconcile-safe: a later reconcileRegistry() re-derives terminalId from the
+   * window NAME, so the new label persists across a broker restart. Returns the
+   * updated descriptor. Throws if the terminalId was never registered (→ 404).
+   */
+  async renameTerminal(terminalId: TerminalId, title: string): Promise<TerminalDescriptor> {
+    const descriptor = this.registry.get(terminalId);
+    if (!descriptor) {
+      throw new Error(`Terminal not found: ${terminalId}`);
+    }
+    await this.exec('tmux', [
+      ...tmux('rename-window', '-t', `${SESSION_NAME}:${descriptor.windowId}`, title),
+    ]);
+    const updated: TerminalDescriptor = { ...descriptor, title };
+    this.registry.set(terminalId, updated);
+    this.logger.log(`Terminal renamed: ${terminalId} → "${title}"`);
+    return updated;
+  }
+
+  /**
    * Re-read SNAPSHOT fields for a terminal (panePid/fgPid/cwd/command).
    * Updates the registry entry in place and returns fresh pids.
    * Callers that need the live process state (term_ps / term_panes) invoke this.

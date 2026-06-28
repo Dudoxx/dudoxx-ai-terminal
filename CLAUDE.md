@@ -12,9 +12,9 @@ terminals simultaneously. Four workspace packages + two CLI e2e fixtures.
 | Package | Role | Port / transport | CLAUDE.md |
 |---|---|---|---|
 | `@ddx/term-contract` | zod schemas: WS frames, MCP tool I/O, descriptors | library (ESM+CJS+types) | `packages/ddx-term-contract/CLAUDE.md` |
-| `ddx-term-broker` | human channel + canonical state (NestJS 11) | HTTP/WS **6481** | `ddx-term-broker/CLAUDE.md` |
+| `ddx-term-broker` | human channel + canonical state (NestJS 11) | HTTP/WS **13330** | `ddx-term-broker/CLAUDE.md` |
 | `@dudoxx/ddx-term-mcp` | agent channel: MCP stdio, thin tmux client (no PTY) | stdio | `ddx-term-mcp/CLAUDE.md` |
-| `ddx-term-web` | xterm.js UI, one tab per terminalId (Next.js 16) | HTTP **3460** | `ddx-term-web/CLAUDE.md` |
+| `ddx-term-web` | xterm.js UI, one tab per terminalId (Next.js 16) | HTTP **13340** | `ddx-term-web/CLAUDE.md` |
 
 `ddx-cli-py` / `ddx-cli-ts` are interactive e2e-target fixtures — NOT workspace
 packages, never built or published from here.

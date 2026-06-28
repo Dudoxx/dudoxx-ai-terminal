@@ -1,0 +1,501 @@
+{
+  "scope": "autonomous-stack-publish",
+  "status": "in_progress",
+  "executionModel": "parallel",
+  "branch": "feature/autonomous-stack-publish",
+  "parallel_groups": [
+    {
+      "group": "A",
+      "depends_on": [],
+      "tasks": [
+        "c1-ports-consts",
+        "c2-health-schema",
+        "c3-error-codes"
+      ]
+    },
+    {
+      "group": "B",
+      "depends_on": [
+        "A"
+      ],
+      "tasks": [
+        "b1-broker-health-identity",
+        "w1-web-standalone"
+      ]
+    },
+    {
+      "group": "C",
+      "depends_on": [
+        "B"
+      ],
+      "tasks": [
+        "s1-supervisor"
+      ]
+    },
+    {
+      "group": "D",
+      "depends_on": [
+        "C"
+      ],
+      "tasks": [
+        "bn1-bundling"
+      ]
+    },
+    {
+      "group": "E",
+      "depends_on": [
+        "D"
+      ],
+      "tasks": [
+        "ci1-publish-ci"
+      ]
+    },
+    {
+      "group": "F",
+      "depends_on": [
+        "E"
+      ],
+      "tasks": [
+        "d1-docs"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "c1-ports-consts",
+      "shard": "01-contract",
+      "subject": "Add canonical ports/endpoints constants module to @ddx/term-contract",
+      "category": "feature",
+      "agent": "Vera",
+      "skill_refs": [
+        "typescript-strict"
+      ],
+      "depends_on": [],
+      "status": "completed",
+      "context_files": [
+        "plans/autonomous-stack-publish/_invariants.md",
+        "packages/ddx-term-contract/CLAUDE.md",
+        "packages/ddx-term-contract/src/session.ts",
+        "packages/ddx-term-contract/src/index.ts"
+      ],
+      "context": "All cross-boundary types MUST live in @ddx/term-contract (root CLAUDE.md invariant). Create src/ports.ts as the single source for ports + env-var names + health path. Canonical: broker 6481 (env DDX_TERM_BROKER_PORT), web 3460 (env DDX_TERM_WEB_PORT), tmux socket /tmp/ddx-term.sock (env DDX_TERM_SOCKET), host 127.0.0.1, BROKER_HEALTH_PATH='/api/v1/session/health'. Mirror session.ts shape: `export const DEFAULT_BROKER_PORT = 6481 as const` etc + a `resolvePorts(env: NodeJS.ProcessEnv)` helper returning {brokerPort, webPort, socket, host} with env override (Number() parse, fall back to defaults). Re-export from index.ts. Pure constants + one pure helper — no I/O.",
+      "steps": [
+        "Create packages/ddx-term-contract/src/ports.ts with DEFAULT_BROKER_PORT/DEFAULT_WEB_PORT/DEFAULT_SOCKET/LOOPBACK_HOST/BROKER_HEALTH_PATH consts (as const) + env-var-name consts.",
+        "Add resolvePorts(env) returning typed {brokerPort:number, webPort:number, socket:string, host:string} with Number() parse + default fallback; zero any.",
+        "Add `export * from './ports';` to src/index.ts barrel.",
+        "Run the verification command."
+      ],
+      "files": {
+        "create": [
+          "packages/ddx-term-contract/src/ports.ts"
+        ],
+        "modify": [
+          "packages/ddx-term-contract/src/index.ts"
+        ],
+        "delete": []
+      },
+      "pitfalls": [
+        "zod is a PEER dependency here — fine to import `z` but do not add it as a hard dep.",
+        "Keep the dual-build exports map + 3 tsconfig.*.json in lockstep; a new src file is picked up automatically but verify the build emits it."
+      ],
+      "validation": "pnpm --filter @ddx/term-contract build && pnpm --filter @ddx/term-contract typecheck",
+      "acceptance_criteria": [
+        "src/ports.ts exports the 5 canonical constants + resolvePorts, re-exported from index.ts.",
+        "Build emits esm+cjs+types for the new module; zero any."
+      ]
+    },
+    {
+      "id": "c2-health-schema",
+      "shard": "01-contract",
+      "subject": "Add BrokerHealthSchema with service-identity + version fields",
+      "category": "feature",
+      "agent": "Vera",
+      "skill_refs": [
+        "typescript-strict"
+      ],
+      "depends_on": [],
+      "status": "completed",
+      "context_files": [
+        "plans/autonomous-stack-publish/_invariants.md",
+        "packages/ddx-term-contract/src/session.ts",
+        "ddx-term-broker/src/modules/session/session.controller.ts"
+      ],
+      "context": "FM#2 anti-zombie: the health probe must validate a broker IDENTITY field, not just TCP open. Today SessionController.health() returns an INLINE `HealthResponse {healthy, sessionId, socketPath}` (not from contract). Add BrokerHealthSchema to src/session.ts: z.object({ service: z.literal('ddx-term-broker'), version: z.string().min(1), healthy: z.boolean(), sessionId: z.string().min(1), socketPath: z.string().min(1) }) + inferred BrokerHealth type. The literal `service` is what a foreign process on 6481 cannot fake.",
+      "steps": [
+        "Add BrokerHealthSchema + BrokerHealth type to packages/ddx-term-contract/src/session.ts (mirror SessionDescriptorSchema style).",
+        "Confirm it is re-exported (session.ts already exported via index.ts barrel).",
+        "Run verification."
+      ],
+      "files": {
+        "create": [],
+        "modify": [
+          "packages/ddx-term-contract/src/session.ts"
+        ],
+        "delete": []
+      },
+      "pitfalls": [
+        "service must be z.literal('ddx-term-broker') (not z.string) — the literal is the discriminator that defeats a zombie/foreign process."
+      ],
+      "validation": "pnpm --filter @ddx/term-contract build && pnpm --filter @ddx/term-contract typecheck",
+      "acceptance_criteria": [
+        "BrokerHealthSchema with literal service field exported from contract; parsing a payload missing service or with a wrong service literal fails."
+      ]
+    },
+    {
+      "id": "c3-error-codes",
+      "shard": "01-contract",
+      "subject": "Add PORT_CONFLICT + STACK_LAUNCH_FAILED error codes",
+      "category": "feature",
+      "agent": "Vera",
+      "skill_refs": [
+        "typescript-strict"
+      ],
+      "depends_on": [],
+      "status": "completed",
+      "context_files": [
+        "packages/ddx-term-contract/src/mcp-tools.ts"
+      ],
+      "context": "Supervisor raises two new error codes. Add PORT_CONFLICT and STACK_LAUNCH_FAILED to TermErrorCodeSchema (mcp-tools.ts ~line 32), to TERM_ERROR_RETRIABLE (both false), and to the TermErrorSchema discriminated union (both with retriable: z.literal(false)). All three edits in lockstep or the Record type-checks fail.",
+      "steps": [
+        "Add the two codes to the z.enum in TermErrorCodeSchema.",
+        "Add the two rows (both false) to TERM_ERROR_RETRIABLE.",
+        "Add the two branches to TermErrorSchema discriminated union (retriable: z.literal(false)).",
+        "Run verification + the contract spec."
+      ],
+      "files": {
+        "create": [],
+        "modify": [
+          "packages/ddx-term-contract/src/mcp-tools.ts"
+        ],
+        "delete": []
+      },
+      "pitfalls": [
+        "TERM_ERROR_RETRIABLE is `Record<TermErrorCode, boolean>` — adding to the enum without adding the map row is a compile error (good — it forces lockstep)."
+      ],
+      "validation": "pnpm --filter @ddx/term-contract build && pnpm --filter @ddx/term-contract test",
+      "acceptance_criteria": [
+        "Both codes present in enum + retriable map (false) + discriminated union; mcp-tools.spec.ts green."
+      ]
+    },
+    {
+      "id": "b1-broker-health-identity",
+      "shard": "02-broker",
+      "subject": "Return BrokerHealth (service + version identity) from /api/v1/session/health",
+      "category": "feature",
+      "agent": "Kai",
+      "skill_refs": [
+        "nestjs-backend",
+        "typescript-strict"
+      ],
+      "depends_on": [
+        "c2-health-schema"
+      ],
+      "status": "completed",
+      "context_files": [
+        "plans/autonomous-stack-publish/_invariants.md",
+        "ddx-term-broker/CLAUDE.md",
+        "ddx-term-broker/src/modules/session/session.controller.ts",
+        "ddx-term-broker/src/main.ts"
+      ],
+      "context": "Endpoint GET /api/v1/session/health already exists (global prefix api/v1 set in main.ts; controller @Controller('session') @Get('health')). It returns an INLINE HealthResponse {healthy, sessionId, socketPath}. Change it to return the contract BrokerHealth shape adding service:'ddx-term-broker' (literal) + version. main.ts line 19 already does `import { version as APP_VERSION } from '../package.json'` — reuse that import in the controller. Delete the inline HealthResponse interface. DO NOT add auth/guards — broker is localhost-only by design (recorded in broker CLAUDE.md). Verify (no change expected): host default 127.0.0.1 (main.ts line 41), start:prod='node dist/main.js'.",
+      "steps": [
+        "Import BrokerHealth from '@ddx/term-contract' and `version` from '../../../package.json' (match main.ts import style) into session.controller.ts.",
+        "Change health() return type to BrokerHealth; add service:'ddx-term-broker' + version to the returned object.",
+        "Delete the now-unused inline HealthResponse interface.",
+        "Run verification + curl smoke (manual)."
+      ],
+      "files": {
+        "create": [],
+        "modify": [
+          "ddx-term-broker/src/modules/session/session.controller.ts"
+        ],
+        "delete": []
+      },
+      "pitfalls": [
+        "Do NOT add @UseGuards — broker has no auth by design (localhost-only); adding guards breaks the supervisor probe and contradicts broker CLAUDE.md.",
+        "Keep business logic in SessionService (isHealthy / getSessionDescriptor); controller only shapes the response (NestJS review checklist).",
+        "package.json relative import path from session.controller.ts is ../../../package.json — verify depth."
+      ],
+      "validation": "pnpm --filter ddx-term-broker tsc:check && pnpm --filter ddx-term-broker lint:check && pnpm --filter ddx-term-broker test",
+      "acceptance_criteria": [
+        "GET /api/v1/session/health returns service:'ddx-term-broker' + version + healthy + sessionId + socketPath, typed as contract BrokerHealth.",
+        "No guards added; broker still binds 127.0.0.1 by default; dist/main.js runs under plain node."
+      ]
+    },
+    {
+      "id": "w1-web-standalone",
+      "shard": "03-web",
+      "subject": "Enable Next standalone output + verify custom server.mjs compatibility",
+      "category": "feature",
+      "agent": "Neo",
+      "skill_refs": [
+        "frontend-stack",
+        "typescript-strict"
+      ],
+      "depends_on": [
+        "c1-ports-consts"
+      ],
+      "status": "completed",
+      "context_files": [
+        "plans/autonomous-stack-publish/_invariants.md",
+        "ddx-term-web/CLAUDE.md",
+        "ddx-term-web/next.config.ts",
+        "ddx-term-web/server.mjs"
+      ],
+      "context": "Add output:'standalone' to next.config.ts nextConfig object so `next build` emits .next/standalone with a traced minimal node_modules (locked decision #1, FM#3 lean tarball). The web uses a CUSTOM server (server.mjs) for /term/* WS-upgrade proxy — Next standalone scaffolds its OWN server.js but server.mjs is the real entrypoint; the bundling shard ships it alongside. ENV-VAR REALITY (load-bearing for shard 04): server.mjs reads DDX_TERM_BROKER_WS (default ws://127.0.0.1:6481); next.config.ts rewrites read BROKER_BASE_URL (default http://localhost:6481). The supervisor must set BOTH (not DDX_TERM_BROKER_URL). PITFALL: ws is used only by server.mjs so Next's dep-trace may omit it from .next/standalone/node_modules — verify presence; .next/static is NOT inside standalone by default and must be copied (bundling shard) or assets 404.",
+      "steps": [
+        "Add `output: 'standalone'` to the nextConfig object in next.config.ts (inside withNextIntl wrap).",
+        "Run `pnpm --filter ddx-term-web build` and confirm .next/standalone/ is emitted.",
+        "Verify .next/standalone/node_modules/ws exists; if absent, note it for the bundling shard to copy explicitly.",
+        "Confirm server.mjs already reads DDX_TERM_BROKER_WS + (next.config) BROKER_BASE_URL from env (no code change expected).",
+        "Document the standalone runnable set: .next/standalone + .next/static + server.mjs + messages/ + public/ (if any)."
+      ],
+      "files": {
+        "create": [],
+        "modify": [
+          "ddx-term-web/next.config.ts"
+        ],
+        "delete": []
+      },
+      "pitfalls": [
+        "Do NOT remove the custom server — WS-upgrade proxy is mandatory (single-origin).",
+        "ws may be missing from the traced standalone node_modules — verify and flag to bundling shard.",
+        ".next/static must be copied into .next/standalone/.next/static or static assets 404."
+      ],
+      "validation": "pnpm --filter ddx-term-web typecheck && pnpm --filter ddx-term-web lint && pnpm --filter ddx-term-web build",
+      "acceptance_criteria": [
+        "next.config.ts has output:'standalone'; build emits .next/standalone.",
+        "The standalone runnable set is documented; ws-presence verified or flagged.",
+        "server.mjs confirmed env-driven for broker WS + rewrite base."
+      ]
+    },
+    {
+      "id": "s1-supervisor",
+      "shard": "04-mcp-supervisor",
+      "subject": "Build src/supervisor/ — ensureStack lazy pre-flight (lock, probe, spawn, port-conflict)",
+      "category": "feature",
+      "agent": "Kai",
+      "skill_refs": [
+        "typescript-strict",
+        "agentic-patterns"
+      ],
+      "depends_on": [
+        "c1-ports-consts",
+        "c2-health-schema",
+        "c3-error-codes",
+        "b1-broker-health-identity",
+        "w1-web-standalone"
+      ],
+      "status": "completed",
+      "readBeforeStart": [
+        "ddx-term-mcp/CLAUDE.md",
+        "ddx-term-mcp/src/no-pty.spec.ts",
+        "ddx-term-mcp/src/resolver-factory.ts",
+        "ddx-term-mcp/src/server.ts",
+        "ddx-term-mcp/src/errors.ts"
+      ],
+      "context_files": [
+        "plans/autonomous-stack-publish/_invariants.md",
+        "ddx-term-mcp/CLAUDE.md",
+        "ddx-term-mcp/src/resolver-factory.ts",
+        "ddx-term-mcp/src/server.ts",
+        "ddx-term-mcp/src/errors.ts",
+        "ddx-term-mcp/src/no-pty.spec.ts"
+      ],
+      "context": "Autonomous bootstrap brain. On FIRST term_* call, ensure broker(6481)+web(3460) are live machine-wide (singleton via O_EXCL lockfile at ~/.ddx-term/{broker,web}.lock), then set DDX_TERM_BROKER_URL so the EXISTING resolver-factory.ts buildResolver takes the BrokerRestResolver attached path (it already branches on that var — do NOT change the factory). 3 FAILURE MODES: (1) lock race -> openSync(path,'wx') O_EXCL; loser polls probeHealth instead of spawning; reclaimStaleLock if pid dead (process.kill(pid,0)->ESRCH) or age>10s. (2) zombie/port-conflict -> probeHealth validates body against BrokerHealthSchema service==='ddx-term-broker' (not bare TCP); foreign process on port -> throw TermError('PORT_CONFLICT', naming port + DDX_TERM_BROKER_PORT), never silent-attach. (3) web lazy + opt-out DDX_TERM_WEB=0. NO PTY: spawn process.execPath (node) via child_process.spawn detached+unref on dist/broker/main.js and dist/web/server.mjs — never a shell, never node-pty (no-pty.spec.ts must stay green). Set DDX_TERM_BROKER_WS + BROKER_BASE_URL for the web child (server.mjs reads DDX_TERM_BROKER_WS; next rewrites read BROKER_BASE_URL — NOT DDX_TERM_BROKER_URL). Wire ensureStack via a memoized ensureOnce at the top of server.ts CallToolRequestSchema handler (before dispatch); build ToolContext lazily on first call so buildResolver sees the now-set DDX_TERM_BROKER_URL. Keep connect (main) fast — no pre-flight there.",
+      "steps": [
+        "Create src/supervisor/paths.ts: ~/.ddx-term/ dir (os.homedir + mkdirSync recursive) + broker.lock/web.lock paths + resolved bundled entry paths (dist/broker/main.js, dist/web/server.mjs relative to import.meta dir).",
+        "Create src/supervisor/lockfile.ts: acquireLock (openSync 'wx'), releaseLock, readLock, reclaimStaleLock(staleMs) with dead-pid (process.kill(pid,0)) + age check.",
+        "Create src/supervisor/health.ts: probeHealth(brokerPort) via timed fetch (mirror resolver-factory AbortController) parsing BrokerHealthSchema, returns true only when service==='ddx-term-broker' && healthy; probeForeign distinguishes open-but-not-us -> PORT_CONFLICT.",
+        "Create src/supervisor/spawn.ts: spawnDetached(kind, env) = child_process.spawn(process.execPath, [entry], {detached:true, stdio:'ignore', env}) + unref. No shell, no node-pty.",
+        "Create src/supervisor/ensure-stack.ts: orchestrate probe -> acquireLock -> spawn+poll(broker) -> (DDX_TERM_WEB!=='0') spawn+poll(web, TCP-connect probe) -> set DDX_TERM_BROKER_URL + DDX_TERM_BROKER_WS + BROKER_BASE_URL; foreign -> throw PORT_CONFLICT; launch timeout -> STACK_LAUNCH_FAILED. Inject spawn/probe deps for testability.",
+        "Wire ensureOnce(env) (memoized promise) into server.ts CallToolRequestSchema handler before dispatch; move buildContext to lazy first-call path so resolver reads DDX_TERM_BROKER_URL. Keep buildContext/buildServer exports.",
+        "Add specs: lockfile.spec.ts, health.spec.ts, ensure-stack.spec.ts; confirm no-pty.spec.ts still green.",
+        "Run verification."
+      ],
+      "files": {
+        "create": [
+          "ddx-term-mcp/src/supervisor/paths.ts",
+          "ddx-term-mcp/src/supervisor/lockfile.ts",
+          "ddx-term-mcp/src/supervisor/health.ts",
+          "ddx-term-mcp/src/supervisor/spawn.ts",
+          "ddx-term-mcp/src/supervisor/ensure-stack.ts",
+          "ddx-term-mcp/src/supervisor/lockfile.spec.ts",
+          "ddx-term-mcp/src/supervisor/health.spec.ts",
+          "ddx-term-mcp/src/supervisor/ensure-stack.spec.ts"
+        ],
+        "modify": [
+          "ddx-term-mcp/src/server.ts"
+        ],
+        "delete": []
+      },
+      "pitfalls": [
+        "NO PTY: spawn process.execPath (node) — never a shell string, never node-pty/pty.spawn. no-pty.spec.ts greps source and is a release gate.",
+        "Set DDX_TERM_BROKER_WS + BROKER_BASE_URL for the web child — NOT DDX_TERM_BROKER_URL (that is MCP-side only). Wrong var = web can't reach broker.",
+        "Do NOT run ensureStack at stdio connect (main) — connect must stay fast; run it memoized on first verb.",
+        "probeHealth must parse the identity body, not just check TCP — a foreign process on 6481 must surface as PORT_CONFLICT, never silent-attach.",
+        "Lock winner must still poll its own probeHealth after spawn (spawn != ready); only resolve when health passes or STACK_LAUNCH_FAILED on timeout.",
+        "Resolver is built from env at context-build time — ToolContext must be built AFTER ensureStack sets DDX_TERM_BROKER_URL, else it picks LocalMapResolver (standalone)."
+      ],
+      "validation": "pnpm --filter @dudoxx/ddx-term-mcp typecheck && pnpm --filter @dudoxx/ddx-term-mcp test",
+      "acceptance_criteria": [
+        "FM#1: two concurrent acquireLock -> exactly one spawns; loser polls health; stale dead-pid lock reclaimed (>10s) — covered by lockfile.spec.ts.",
+        "FM#2: probeHealth validates BrokerHealth service literal; foreign process on broker port -> PORT_CONFLICT naming port + DDX_TERM_BROKER_PORT, never silent-attach — covered by health.spec.ts.",
+        "FM#3: DDX_TERM_WEB=0 -> web never spawned — covered by ensure-stack.spec.ts.",
+        "After ensureStack, DDX_TERM_BROKER_URL is set and the verb runs via BrokerRestResolver (attached); no-pty.spec.ts green; connect path unchanged/fast."
+      ]
+    },
+    {
+      "id": "bn1-bundling",
+      "shard": "05-bundling",
+      "subject": "Inline broker (dist/broker) + web standalone (dist/web) into the MCP tarball + pack-verify",
+      "category": "build",
+      "agent": "Kai",
+      "skill_refs": [
+        "typescript-strict"
+      ],
+      "depends_on": [
+        "s1-supervisor"
+      ],
+      "status": "completed",
+      "readBeforeStart": [
+        "ddx-term-mcp/tsup.config.ts",
+        "ddx-term-mcp/package.json"
+      ],
+      "context_files": [
+        "plans/autonomous-stack-publish/_invariants.md",
+        "ddx-term-mcp/tsup.config.ts",
+        "ddx-term-mcp/package.json",
+        ".changeset/config.json"
+      ],
+      "context": "Locked decision #1: inline broker (dist/broker/main.js, plain-node runnable) + web Next standalone (dist/web/) into @dudoxx/ddx-term-mcp tarball — the supervisor spawns exactly these paths. Add a build:stack script: build broker then place its compiled main.js at dist/broker/main.js (PREFER tsup-bundle the broker like the contract is already inlined via noExternal — keeps tarball lean per FM#3; FALL BACK to dist-copy + pruned node_modules + mark NEEDS_REVIEW if NestJS decorator/reflect-metadata bundling fails). Copy web .next/standalone/* -> dist/web/, .next/static -> dist/web/.next/static, server.mjs -> dist/web/server.mjs, messages/ -> dist/web/messages/, ensure ws present at dist/web/node_modules/ws. Ship ONLY these (not full web node_modules). Add 'dist/broker' + 'dist/web' to package.json files[]. Chain prepublishOnly to run build:stack before build:bundle. Add scripts/verify-pack.mjs: npm pack --dry-run --json asserting dist/server.js + dist/broker/main.js + dist/web/server.mjs + dist/web/.next/static present AND total size under budget (tune to measured; FM#3). Keep broker/web private:true + in changeset ignore[] (already true).",
+      "steps": [
+        "Add build:stack to ddx-term-mcp/package.json: build broker -> dist/broker/main.js (tsup-bundle preferred; dist-copy fallback + NEEDS_REVIEW).",
+        "build:stack also copies web .next/standalone -> dist/web, .next/static -> dist/web/.next/static, server.mjs, messages/, and ensures dist/web/node_modules/ws.",
+        "Add 'dist/broker' + 'dist/web' to package.json files[].",
+        "Update prepublishOnly to run build:stack then build:bundle.",
+        "Create scripts/verify-pack.mjs (pack-manifest path assertions + size budget); fail on missing path or over-budget.",
+        "Smoke: node dist/broker/main.js boots 6481; node dist/web/server.mjs boots 3460; run verify-pack."
+      ],
+      "files": {
+        "create": [
+          "ddx-term-mcp/scripts/verify-pack.mjs"
+        ],
+        "modify": [
+          "ddx-term-mcp/package.json",
+          "ddx-term-mcp/tsup.config.ts"
+        ],
+        "delete": []
+      },
+      "pitfalls": [
+        "NestJS + tsup bundling can break decorators/reflect-metadata — verify `node dist/broker/main.js` BOOTS before done; else dist-copy fallback + NEEDS_REVIEW.",
+        ".next/static is OUTSIDE .next/standalone — copy it explicitly or web assets 404.",
+        "ws may be absent from the standalone trace — verify dist/web/node_modules/ws.",
+        "Do NOT ship full web node_modules (tarball bloat, FM#3) — only the traced standalone tree + static + server.mjs + messages + ws.",
+        "Broker/web must stay private:true + changeset ignore[] — never publish them as packages."
+      ],
+      "validation": "pnpm --filter @dudoxx/ddx-term-mcp run build:stack && pnpm --filter @dudoxx/ddx-term-mcp run build:bundle && node ddx-term-mcp/scripts/verify-pack.mjs",
+      "acceptance_criteria": [
+        "Tarball includes dist/broker/main.js + dist/web/server.mjs + dist/web/.next/static; node boots both from those paths.",
+        "package.json files[] + prepublishOnly extended; verify-pack passes path + size-budget assertions (FM#3).",
+        "broker/web remain private + in changeset ignore[]."
+      ]
+    },
+    {
+      "id": "ci1-publish-ci",
+      "shard": "06-publish-ci",
+      "subject": "Extend release.yml to build full stack + run pack/size gate before publish",
+      "category": "build",
+      "agent": "Kai",
+      "skill_refs": [],
+      "depends_on": [
+        "bn1-bundling"
+      ],
+      "status": "pending",
+      "context_files": [
+        "plans/autonomous-stack-publish/_invariants.md",
+        ".github/workflows/release.yml",
+        "ddx-term-mcp/package.json"
+      ],
+      "context": "EXTEND .github/workflows/release.yml (do not replace). Existing gate only runs typecheck+test on the MCP package — it never builds broker+web standalone. Add steps (after the gate, before the changesets action): run @dudoxx/ddx-term-mcp build:stack + build:bundle, then node ddx-term-mcp/scripts/verify-pack.mjs (pack-manifest + size-budget gate, FM#3). prepublishOnly already chains the builds, but the explicit CI build+verify step makes a regression fail loudly in CI not silently at publish. Keep NPM_TOKEN/NODE_AUTH_TOKEN/NPM_CONFIG_PROVENANCE/permissions/concurrency UNCHANGED. Verify broker/web stay in changeset ignore[] so they are never published.",
+      "steps": [
+        "After the 'Typecheck + test (gate)' step in release.yml, add a 'Build full stack' step running pnpm -F @dudoxx/ddx-term-mcp run build:stack && build:bundle.",
+        "Add a 'Verify pack (manifest + size budget)' step running node ddx-term-mcp/scripts/verify-pack.mjs.",
+        "Leave the changesets action + all secrets/permissions unchanged.",
+        "Confirm .changeset/config.json still ignores broker/web/contract/e2e."
+      ],
+      "files": {
+        "create": [],
+        "modify": [
+          ".github/workflows/release.yml"
+        ],
+        "delete": []
+      },
+      "pitfalls": [
+        "changeset publish runs prepublishOnly in the package dir — without the explicit CI build it could silently ship a thin tarball; the verify-pack step is the catch.",
+        "Do NOT replace the changesets action or change the push-to-main trigger.",
+        "PR-plane: never add --admin merge; this is publish CI only."
+      ],
+      "validation": "pnpm install --frozen-lockfile && pnpm -F @dudoxx/ddx-term-mcp run build:stack && pnpm -F @dudoxx/ddx-term-mcp run build:bundle && node ddx-term-mcp/scripts/verify-pack.mjs",
+      "acceptance_criteria": [
+        "release.yml builds broker+web standalone + runs verify-pack before the changesets publish step.",
+        "NPM_TOKEN/provenance/permissions unchanged; broker/web remain ignored (never published)."
+      ]
+    },
+    {
+      "id": "d1-docs",
+      "shard": "07-docs",
+      "subject": "Document npx one-command install + autonomous bootstrap + env vars; DOX pass",
+      "category": "docs",
+      "agent": "Atlas",
+      "skill_refs": [],
+      "depends_on": [
+        "ci1-publish-ci"
+      ],
+      "status": "pending",
+      "context_files": [
+        "plans/autonomous-stack-publish/_invariants.md",
+        "CLAUDE.md",
+        "ddx-term-mcp/CLAUDE.md",
+        "ddx-term-mcp/README.md",
+        "ddx-term-mcp/INSTALLATION.md",
+        "CLAUDE_PUBLISHING.md"
+      ],
+      "context": "Document the payoff + DOX pass. README/INSTALLATION: npx one-command install (claude mcp add ... -- npx -y @dudoxx/ddx-term-mcp, user+project scope), autonomous bootstrap (first term_* call ensures broker+web, machine-wide singleton), env vars DDX_TERM_WEB (0=disable web), DDX_TERM_BROKER_PORT 6481, DDX_TERM_WEB_PORT 3460, DDX_TERM_SOCKET, and PORT_CONFLICT behavior. Remove stale 'not available' note. Root README: self-bootstrapping single-package story. CLAUDE_PUBLISHING.md: full-stack build -> pack/size gate -> changeset publish; broker/web private+ignored. Create/refresh .mcp.json.example at root. DOX pass: update root CLAUDE.md (MCP now self-bootstrapping), ddx-term-mcp/CLAUDE.md (supervisor in Ownership + autonomous-bootstrap contract + new env vars; clarify spawning node != PTY), packages/ddx-term-contract/CLAUDE.md (ports.ts + BrokerHealthSchema), ddx-term-broker/CLAUDE.md (health identity field).",
+      "steps": [
+        "Update ddx-term-mcp/README.md + INSTALLATION.md (install command, bootstrap, env vars, PORT_CONFLICT).",
+        "Update root README.md package/install section.",
+        "Update CLAUDE_PUBLISHING.md publish flow.",
+        "Create/refresh .mcp.json.example at repo root.",
+        "DOX pass on root + 3 package CLAUDE.md files; refresh child indexes."
+      ],
+      "files": {
+        "create": [
+          ".mcp.json.example"
+        ],
+        "modify": [
+          "ddx-term-mcp/README.md",
+          "ddx-term-mcp/INSTALLATION.md",
+          "README.md",
+          "CLAUDE_PUBLISHING.md",
+          "CLAUDE.md",
+          "ddx-term-mcp/CLAUDE.md",
+          "packages/ddx-term-contract/CLAUDE.md",
+          "ddx-term-broker/CLAUDE.md"
+        ],
+        "delete": []
+      },
+      "pitfalls": [
+        "Do NOT weaken the no-PTY invariant in ddx-term-mcp/CLAUDE.md — clarify that spawning `node` (not a shell/pty) is allowed.",
+        "Closer-wins applies only within T4 — no child CLAUDE.md may weaken a Cardinal/invariant.",
+        "Verify the install command is copy-paste correct (npx -y @dudoxx/ddx-term-mcp)."
+      ],
+      "validation": "rg -n 'DDX_TERM_WEB|DDX_TERM_BROKER_PORT|DDX_TERM_WEB_PORT' ddx-term-mcp/README.md ddx-term-mcp/INSTALLATION.md && test -f .mcp.json.example",
+      "acceptance_criteria": [
+        "README + INSTALLATION document the npx install, autonomous bootstrap, all 4 env vars, and PORT_CONFLICT behavior.",
+        ".mcp.json.example exists; CLAUDE_PUBLISHING.md describes the full-stack publish gate.",
+        "DOX pass done on root + 3 package CLAUDE.md files; no invariant weakened."
+      ]
+    }
+  ]
+}

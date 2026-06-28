@@ -14,6 +14,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Param,
   Body,
@@ -34,6 +35,13 @@ const CreateTerminalBodySchema = z.object({
 });
 
 type CreateTerminalBody = z.infer<typeof CreateTerminalBodySchema>;
+
+/** Bound PATCH /terminals/:id body — title is REQUIRED, trimmed, 1-64 chars. */
+const RenameTerminalBodySchema = z.object({
+  title: z.string().trim().min(1).max(64),
+});
+
+type RenameTerminalBody = z.infer<typeof RenameTerminalBodySchema>;
 
 /** Inline Zod validation pipe — validates and returns the parsed value. */
 class ZodPipe<T> implements PipeTransform<unknown, T> {
@@ -80,6 +88,17 @@ export class TerminalController {
   @ApiParam({ name: 'id', description: 'terminalId' })
   snapshot(@Param('id') id: string): Promise<SnapshotResult> {
     return this.terminalService.snapshot(id);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Rename a terminal (tmux rename-window; identity unchanged)' })
+  @ApiParam({ name: 'id', description: 'terminalId' })
+  @ApiBody({ schema: { type: 'object', required: ['title'], properties: { title: { type: 'string', minLength: 1, maxLength: 64 } } } })
+  rename(
+    @Param('id') id: string,
+    @Body(new ZodPipe(RenameTerminalBodySchema)) body: RenameTerminalBody,
+  ): Promise<TerminalDescriptor> {
+    return this.terminalService.rename(id, body.title);
   }
 
   @Delete(':id')

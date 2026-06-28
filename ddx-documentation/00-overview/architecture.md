@@ -39,7 +39,7 @@ so any tmux `-CC` control-mode client renders the shared terminals as native tab
 - **`@ddx/term-contract`** — zod/v4 schemas for WS frames, MCP tool I/O, and
   terminal/session descriptors. Zero runtime logic; the single source of truth that
   the broker, MCP, and web all import. Types are never duplicated downstream.
-- **`ddx-term-broker`** — NestJS 11, port **6481**. Attaches to tmux in control-mode
+- **`ddx-term-broker`** — NestJS 11, port **13330**. Attaches to tmux in control-mode
   (`tmux -CC`), owns the `terminalId ↔ windowId` registry, exposes REST CRUD at
   `/api/v1/terminals`, and fans per-terminal output over a raw `ws.Server` (NOT
   `@WebSocketGateway` — see broker doc for why). On restart it runs
@@ -47,7 +47,7 @@ so any tmux `-CC` control-mode client renders the shared terminals as native tab
   killed**.
 - **`@dudoxx/ddx-term-mcp`** — MCP stdio server. A thin tmux client via `execFile`
   with **zero `node-pty`** (enforced by `no-pty.spec.ts`). Exposes 10 verbs.
-- **`ddx-term-web`** — Next.js 16 App Router, port **3460**. Opens **one WS per
+- **`ddx-term-web`** — Next.js 16 App Router, port **13340**. Opens **one WS per
   terminalId** (`/term/<terminalId>`). A tab switch is a WS resubscribe + snapshot
   restore — NOT a full reconnect.
 
@@ -65,8 +65,8 @@ flowchart TD
     end
 
     subgraph Human channel
-        H[Human: browser] -->|xterm.js| WEB[ddx-term-web :3460]
-        WEB -->|WS /term/&lt;terminalId&gt;| BROKER[ddx-term-broker :6481]
+        H[Human: browser] -->|xterm.js| WEB[ddx-term-web :13340]
+        WEB -->|WS /term/&lt;terminalId&gt;| BROKER[ddx-term-broker :13330]
         BROKER -->|tmux -CC control-mode attach| TMUX
         BROKER -->|REST /api/v1/terminals| WEB
     end

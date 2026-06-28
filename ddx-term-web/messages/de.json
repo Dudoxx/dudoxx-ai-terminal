@@ -54,6 +54,13 @@
       "closeTab": "Terminal {title} schließen",
       "sidePanel": "Terminal-Sitzungsleiste",
       "sessionList": "Liste der Terminal-Sitzungen"
-    }
+    },
+    "newTerminalTitle": "Terminal {n}",
+    "rename": "Terminal umbenennen",
+    "kill": "Terminal beenden",
+    "cancel": "Abbrechen",
+    "confirmRename": "Name speichern",
+    "confirmKill": "Beenden bestätigen",
+    "renameLabel": "{title} umbenennen"
   }
 }

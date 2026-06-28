@@ -5,7 +5,7 @@ The human channel + canonical state owner for ddx-terminal-bridge. A NestJS 11
 service that attaches to the shared tmux session in **control mode** (`tmux -CC`),
 owns the canonical terminal registry (`terminalId ↔ windowId`), exposes terminal
 REST CRUD, and fans tmux output to browser clients over a **per-terminalId**
-WebSocket. Default port **6481** (`DDX_TERM_BROKER_PORT`), host `127.0.0.1`
+WebSocket. Default port **13330** (`DDX_TERM_BROKER_PORT`), host `127.0.0.1`
 (`DDX_TERM_BROKER_HOST`).
 
 ## Ownership
@@ -62,7 +62,7 @@ WebSocket. Default port **6481** (`DDX_TERM_BROKER_PORT`), host `127.0.0.1`
 ## Verification
 `pnpm --filter ddx-term-broker tsc:check` · `pnpm --filter ddx-term-broker lint:check`
 · `pnpm --filter ddx-term-broker test`. Boot smoke: `pnpm --filter ddx-term-broker
-start:dev` → banner `DDX Term Broker … listening on http://127.0.0.1:6481`,
+start:dev` → banner `DDX Term Broker … listening on http://127.0.0.1:13330`,
 Swagger at `/docs`.
 
 ---

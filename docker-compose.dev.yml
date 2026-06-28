@@ -10,11 +10,12 @@ services:
     container_name: ddx-sbx-term-broker
     environment:
       - NODE_ENV=development
-      - PORT=6481
+      - PORT=13330
+      - DDX_TERM_BROKER_PORT=13330
       - DDX_TERM_SOCKET=/tmp/ddx-term.sock
       - DDX_TERM_SESSION=ddx-shared
     ports:
-      - '6481:6481'
+      - '13330:13330'
     volumes:
       - ./ddx-term-broker:/app
       - /app/node_modules
@@ -28,10 +29,11 @@ services:
     container_name: ddx-sbx-term-web
     environment:
       - NODE_ENV=development
-      - PORT=3460
-      - NEXT_PUBLIC_BROKER_URL=http://localhost:6481
+      - PORT=13340
+      - DDX_TERM_WEB_PORT=13340
+      - NEXT_PUBLIC_BROKER_URL=http://localhost:13330
     ports:
-      - '3460:3460'
+      - '13340:13340'
     volumes:
       - ./ddx-term-web:/app
       - /app/node_modules

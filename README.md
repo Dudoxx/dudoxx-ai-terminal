@@ -13,30 +13,37 @@ holds no PTY); a Next.js **web** app renders the terminals with xterm.js.
 | Package | Role | Port / transport |
 |---|---|---|
 | `@ddx/term-contract` (`packages/ddx-term-contract`) | Shared zod types — WS frames, MCP tool I/O, terminal/session descriptors | library (ESM+CJS+types) |
-| `ddx-term-broker` | Human channel + canonical state: tmux control-mode attach, registry, REST CRUD, per-terminalId WS | HTTP/WS **6481** (`DDX_TERM_BROKER_PORT`) |
+| `ddx-term-broker` | Human channel + canonical state: tmux control-mode attach, registry, REST CRUD, per-terminalId WS | HTTP/WS **13330** (`DDX_TERM_BROKER_PORT`) |
 | `@dudoxx/ddx-term-mcp` | Agent channel: MCP stdio server, thin tmux client (no PTY) | stdio (`node dist/server.js`) |
-| `ddx-term-web` | Next.js 16 xterm.js UI, one tab per terminalId | HTTP **3460** |
+| `ddx-term-web` | Next.js 16 xterm.js UI, one tab per terminalId | HTTP **13340** (`DDX_TERM_WEB_PORT`) |
+
+> Ports default to the high **133XX** band on purpose — clear of `3000`/`5173`/`8080` so the
+> bridge never collides with your own running codebases. Override via env or a `.env` file
+> (see [Configuration](#configuration)).
 
 > `ddx-cli-py` / `ddx-cli-ts` are interactive e2e-target fixtures, **not** workspace
 > packages — they are never built or published from here.
 
-## One-command bring-up
+## Bring-up
+
+The normal path is **agent-driven** — you do not start a dev server by hand. Build once,
+register the MCP (below), then call any `term_*` verb: the MCP server's supervisor spawns
+the broker (`13330`) and web (`13340`) automatically and attaches to them.
 
 ```sh
 pnpm install
-pnpm dev          # turbo run dev → broker (6481) + web (3460) together
-```
-
-`pnpm dev` runs the broker and web concurrently via turbo. Open the web UI at
-**http://localhost:3460**. The MCP server is **not** part of `pnpm dev` — it is
-launched over **stdio by the MCP client** (Claude Code / Claude Desktop), not as a
-long-running dev process. Build it once so the client has a binary to spawn:
-
-```sh
 pnpm build                                   # builds all packages incl. ddx-term-mcp/dist/server.js
 # or just the MCP server + its contract dep:
 pnpm --filter @dudoxx/ddx-term-mcp... build
 ```
+
+Then open the web UI at **http://localhost:13340** to watch the same terminals the agent
+drives. Lock files at `~/.ddx-term/{broker,web}.lock` make the stack a machine-wide
+singleton; set `DDX_TERM_WEB=0` to run broker-only (headless).
+
+> **Hacking on the broker/web themselves?** `pnpm dev` still runs both concurrently via
+> turbo (`broker 13330 + web 13340`) for a live edit loop — but it is no longer required for
+> normal agent use. See [`SETUP.md`](./SETUP.md).
 
 ## Register the MCP server (agent channel)
 
@@ -53,7 +60,9 @@ with this repo's absolute path:
       "env": {
         "DDX_TERM_SOCKET": "/tmp/ddx-term.sock",
         "DDX_TERM_SESSION": "ddx-shared",
-        "DDX_TERM_DEFAULT": "t01"
+        "DDX_TERM_DEFAULT": "t01",
+        "DDX_TERM_BROKER_PORT": "13330",
+        "DDX_TERM_WEB_PORT": "13340"
       }
     }
   }
@@ -65,6 +74,13 @@ with this repo's absolute path:
 | `DDX_TERM_SOCKET` | `/tmp/ddx-term.sock` | tmux `-S` socket of the shared session |
 | `DDX_TERM_SESSION` | `ddx-shared` | session hosting all terminals (windows) |
 | `DDX_TERM_DEFAULT` | `t01` | terminalId used when a verb omits `terminalId` |
+| `DDX_TERM_BROKER_PORT` | `13330` | broker HTTP/WS port |
+| `DDX_TERM_WEB_PORT` | `13340` | web UI HTTP port |
+| `DDX_TERM_HOST` | `127.0.0.1` | bind/connect host (loopback by design) |
+| `DDX_TERM_WEB` | (unset → web on) | set `0` to run broker-only (no web spawn) |
+
+The `env:` block is the **per-client** override layer — it wins over `.env` files. The full
+table (read caps, allow-list, supervisor-written URLs) is in [`DEPENDENCIES.md`](./DEPENDENCIES.md).
 
 ### Global install (every Claude Code session)
 
@@ -78,10 +94,34 @@ claude mcp add ddx-term --scope user \
   --env DDX_TERM_SOCKET=/tmp/ddx-term.sock \
   --env DDX_TERM_SESSION=ddx-shared \
   --env DDX_TERM_DEFAULT=t01 \
+  --env DDX_TERM_BROKER_PORT=13330 \
+  --env DDX_TERM_WEB_PORT=13340 \
   -- node "$PWD/ddx-term-mcp/dist/server.js"
 ```
 
 Verify with `claude mcp list` (look for `ddx-term … ✔ Connected`).
+
+## Configuration
+
+Every setting has a built-in code default and **three override layers** — highest wins, and
+`override: false` means an explicitly-set var always beats a file:
+
+1. **The MCP client `env:` block** (`.mcp.json` / `claude mcp add --env`) — per agent / per client.
+2. **A project-local `.env`** in the current working directory.
+3. **A global `~/.ddx-term/.env`** — applies to every client on the machine.
+
+Copy [`.env.example`](./.env.example) to `.env` (project) or `~/.ddx-term/.env` (global) and
+edit. The MCP server loads both files (`src/load-dotenv.ts`) before resolving ports; the
+broker and web load them too for the standalone `pnpm dev` path. Example — move the whole
+stack onto a different band:
+
+```sh
+# ~/.ddx-term/.env
+DDX_TERM_BROKER_PORT=14330
+DDX_TERM_WEB_PORT=14340
+```
+
+`.env` is gitignored; `.env.example` is the committed template.
 
 > **Publishing is wired — `@dudoxx/ddx-term-mcp` ships as a self-contained npm
 > package.** Its publish bundle (`build:bundle`, tsup) inlines `@ddx/term-contract`

@@ -54,6 +54,13 @@
       "closeTab": "Fermer le terminal {title}",
       "sidePanel": "Panneau des sessions de terminal",
       "sessionList": "Liste des sessions de terminal"
-    }
+    },
+    "newTerminalTitle": "Terminal {n}",
+    "rename": "Renommer le terminal",
+    "kill": "Fermer le terminal",
+    "cancel": "Annuler",
+    "confirmRename": "Enregistrer le nom",
+    "confirmKill": "Confirmer la fermeture",
+    "renameLabel": "Renommer {title}"
   }
 }

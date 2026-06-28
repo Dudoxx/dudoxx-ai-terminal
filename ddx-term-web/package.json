@@ -4,14 +4,15 @@
   "private": true,
   "description": "DDX Terminal Web — Next.js 16 xterm.js UI for the shared multi-terminal bridge.",
   "author": "Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development node server.mjs",
-    "dev:next-only": "next dev --port 3460",
+    "dev:next-only": "next dev --port 13340",
     "build": "next build",
     "start": "NODE_ENV=production node server.mjs",
     "typecheck": "tsc --noEmit",
-    "lint": "next lint",
+    "lint": "eslint src --fix",
+    "lint:check": "eslint src",
     "test": "vitest run"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
+    "dotenv": "^16.4.7",
     "lucide-react": "^1.22.0",
     "next": "16.2.6",
     "next-intl": "^4.12.0",

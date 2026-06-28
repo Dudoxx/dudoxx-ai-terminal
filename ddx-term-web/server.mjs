@@ -12,27 +12,47 @@
  *      broker's WS (ws://BROKER/term/<terminalId>), piping frames both ways.
  *
  * The browser connects same-origin: ws://<this-host>/term/<id>. The broker
- * (DDX_TERM_BROKER_WS, default ws://127.0.0.1:6481) stays private to the server.
+ * (DDX_TERM_BROKER_WS, default ws://127.0.0.1:13330) stays private to the server.
  *
  * Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>
  */
 
+import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { config as dotenvConfig } from 'dotenv';
 import next from 'next';
 import { WebSocket, WebSocketServer } from 'ws';
 
+// Layered .env load (project CWD, then global ~/.ddx-term/.env) — override:false
+// so an already-set env var always wins. When the MCP supervisor spawns this
+// process the env is inherited; this covers the standalone `pnpm dev` path.
+for (const envPath of [join(process.cwd(), '.env'), join(homedir(), '.ddx-term', '.env')]) {
+  if (existsSync(envPath)) dotenvConfig({ path: envPath, override: false });
+}
+
 const dev = process.env.NODE_ENV !== 'production';
-const port = Number(process.env.PORT ?? 3460);
+// Web port default 13340; broker default 13330 — kept in sync with @ddx/term-contract.
+const port = Number(process.env.PORT ?? process.env.DDX_TERM_WEB_PORT ?? 13340);
 const hostname = process.env.HOSTNAME ?? 'localhost';
 
 // Broker WS origin — server-side only, NEVER shipped to the browser.
-const brokerWsBase = (process.env.DDX_TERM_BROKER_WS ?? 'ws://127.0.0.1:6481').replace(/\/$/, '');
+const brokerWsBase = (process.env.DDX_TERM_BROKER_WS ?? 'ws://127.0.0.1:13330').replace(/\/$/, '');
 
 // Only proxy the terminal WS path; everything else is a normal Next upgrade
 // (e.g. Next's own HMR websocket in dev) and must be left to Next.
 const TERM_PATH = /^\/term\/[^/?]+/;
 
-const app = next({ dev, hostname, port });
+// Use __dirname as the Next.js app root so next() always finds .next/ relative to
+// THIS file rather than process.cwd().  This works in both contexts:
+//   dev:    server.mjs is at ddx-term-web/server.mjs → __dirname = ddx-term-web/
+//   bundle: server.mjs is at dist/web/.next/standalone/ddx-term-web/server.mjs
+//           → __dirname = ddx-term-web/ inside the standalone (has .next/ sibling)
+const dir = dirname(fileURLToPath(import.meta.url));
+
+const app = next({ dev, hostname, port, dir });
 
 // prepare() MUST run before getRequestHandler/getUpgradeHandler (Next throws
 // "prepare() must be called before performing this operation" otherwise).

@@ -22,7 +22,7 @@ source of truth — broker/mcp/web NEVER redefine a frame or descriptor.
 (`tsup noExternal`), never published separately. See `packages/ddx-term-contract/CLAUDE.md`.
 
 ## ddx-term-broker — human channel + canonical state (NestJS 11)
-Port **6481**, binds `127.0.0.1`. Owns the registry, REST CRUD (`/api/v1/terminals`,
+Port **13330**, binds `127.0.0.1`. Owns the registry, REST CRUD (`/api/v1/terminals`,
 `…/:id/snapshot`), and a **raw `ws.Server`** fan-out per terminalId (NOT
 `@WebSocketGateway` — `@nestjs/platform-ws` routes upgrades by exact pathname and can't
 serve `/term/<terminalId>`). `reconcileRegistry()` re-adopts live windows on restart.
@@ -50,7 +50,7 @@ bundle inlines the contract. See `ddx-term-mcp/CLAUDE.md`.
 Full schemas + mechanics: `ddx-documentation/03-mcp-reference/tools.md`.
 
 ## ddx-term-web — human UI (Next.js 16)
-Port **3460**. App Router, React 19, Tailwind v4, next-intl. One WS per terminalId;
+Port **13340**. App Router, React 19, Tailwind v4, next-intl. One WS per terminalId;
 tab switch = WS resubscribe + `GET …/:id/snapshot` → `restoreSnapshot()`, NOT a full
 reconnect. Dudoxx frontend rules apply (semantic tokens, i18n lockstep, lucide-only).
 See `ddx-term-web/CLAUDE.md`.

@@ -14,7 +14,7 @@ Run from the repo root. The DAG lives in `turbo.json`.
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` | `turbo run dev` — broker (6481) + web (3460), persistent, no cache. **MCP excluded** (stdio-launched). |
+| `pnpm dev` | `turbo run dev` — broker (13330) + web (13340), persistent, no cache. **MCP excluded** (stdio-launched). |
 | `pnpm build` | `turbo run build` — `dependsOn: ["^build"]`, so contract → broker + mcp + web. |
 | `pnpm test` | `turbo run test` — `dependsOn: ["build"]`. |
 | `pnpm typecheck` | `turbo run typecheck` — `dependsOn: ["^build"]`. |
@@ -53,7 +53,7 @@ pnpm --filter @dudoxx/ddx-term-mcp dev           # tsx src/server.ts (needs an M
 
 ### `ddx-term-web`
 ```sh
-pnpm --filter ddx-term-web dev          # NODE_ENV=development node server.mjs (port 3460)
+pnpm --filter ddx-term-web dev          # NODE_ENV=development node server.mjs (port 13340)
 pnpm --filter ddx-term-web build        # next build
 pnpm --filter ddx-term-web typecheck    # tsc --noEmit
 pnpm --filter ddx-term-web lint         # next lint

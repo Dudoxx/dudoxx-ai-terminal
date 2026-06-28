@@ -96,6 +96,20 @@ export class TerminalService {
   }
 
   /**
+   * PATCH /terminals/:id — rename a terminal's human-facing title.
+   * Delegates to SessionService (the single registry writer). 404 when the
+   * terminalId is unknown; the identity (terminalId↔windowId) never changes.
+   */
+  async rename(rawId: string, title: string): Promise<TerminalDescriptor> {
+    const terminalId = toTerminalId(rawId);
+    const descriptor = this.sessionService.getTerminal(terminalId);
+    if (!descriptor) {
+      throw new NotFoundException(`Terminal not found: ${rawId}`);
+    }
+    return this.sessionService.renameTerminal(terminalId, title);
+  }
+
+  /**
    * Capture the VISIBLE viewport for a terminal — term_snapshot.
    *
    * To make a browser refresh restore the FULL on-screen state (not just plain

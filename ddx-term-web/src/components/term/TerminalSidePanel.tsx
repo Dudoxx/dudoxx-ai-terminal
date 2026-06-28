@@ -13,8 +13,9 @@
 
 'use client';
 
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
-import { TerminalSquare, Plus, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { TerminalSquare, Plus, PanelLeftClose, PanelLeftOpen, Pencil, Trash2, Check, X } from 'lucide-react';
 import type { TerminalDescriptor } from '@ddx/term-contract';
 
 import { AppearanceControls } from './AppearanceControls';
@@ -26,13 +27,15 @@ export interface TerminalSidePanelProps {
   loading: boolean;
   onSelect: (terminalId: string) => void;
   onCreate: () => void;
+  onRename: (terminalId: string, title: string) => void;
+  onKill: (terminalId: string) => void;
   onToggleCollapsed: () => void;
 }
 
 export function TerminalSidePanel(props: TerminalSidePanelProps): React.JSX.Element {
   const {
     terminals, activeId, collapsed, loading,
-    onSelect, onCreate, onToggleCollapsed,
+    onSelect, onCreate, onRename, onKill, onToggleCollapsed,
   } = props;
   const t = useTranslations('terminal');
 
@@ -92,27 +95,16 @@ export function TerminalSidePanel(props: TerminalSidePanelProps): React.JSX.Elem
         ) : terminals.length === 0 ? (
           <span className="px-2 py-1.5 text-sm text-muted-foreground">{t('noTerminals')}</span>
         ) : (
-          terminals.map((descriptor) => {
-            const active = descriptor.terminalId === activeId;
-            return (
-              <button
-                key={descriptor.terminalId}
-                type="button"
-                aria-current={active ? 'true' : undefined}
-                onClick={() => onSelect(descriptor.terminalId)}
-                className={[
-                  'flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  active
-                    ? 'bg-tab-active text-foreground'
-                    : 'text-muted-foreground hover:bg-tab-hover hover:text-foreground',
-                ].join(' ')}
-              >
-                <TerminalSquare aria-hidden className="size-4 shrink-0" />
-                <span className="truncate">{t('tabLabel', { title: descriptor.title })}</span>
-              </button>
-            );
-          })
+          terminals.map((descriptor) => (
+            <TerminalRow
+              key={descriptor.terminalId}
+              descriptor={descriptor}
+              active={descriptor.terminalId === activeId}
+              onSelect={onSelect}
+              onRename={onRename}
+              onKill={onKill}
+            />
+          ))
         )}
       </nav>
 
@@ -133,5 +125,133 @@ export function TerminalSidePanel(props: TerminalSidePanelProps): React.JSX.Elem
         <AppearanceControls />
       </div>
     </aside>
+  );
+}
+
+// ── TerminalRow ───────────────────────────────────────────────────────────────
+
+interface TerminalRowProps {
+  descriptor: TerminalDescriptor;
+  active: boolean;
+  onSelect: (terminalId: string) => void;
+  onRename: (terminalId: string, title: string) => void;
+  onKill: (terminalId: string) => void;
+}
+
+/**
+ * One session-list row. Three modes:
+ *   - view:    label + hover-revealed rename (Pencil) / kill (Trash2) actions.
+ *   - rename:  inline text input + confirm (Check) / cancel (X). Enter=confirm,
+ *              Escape=cancel. Empty/unchanged title cancels (no no-op PATCH).
+ *   - confirm: kill is two-step (Trash2 → Check/X) so there is NO destructive
+ *              one-click and NO banned window.confirm() dialog (design-system §6/§7).
+ */
+function TerminalRow(props: TerminalRowProps): React.JSX.Element {
+  const { descriptor, active, onSelect, onRename, onKill } = props;
+  const t = useTranslations('terminal');
+  const [mode, setMode] = useState<'view' | 'rename' | 'confirmKill'>('view');
+  const [draft, setDraft] = useState(descriptor.title);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (mode === 'rename') inputRef.current?.select();
+  }, [mode]);
+
+  const commitRename = useCallback(() => {
+    const next = draft.trim();
+    if (next && next !== descriptor.title) onRename(descriptor.terminalId, next);
+    setMode('view');
+  }, [draft, descriptor.terminalId, descriptor.title, onRename]);
+
+  const cancel = useCallback(() => {
+    setDraft(descriptor.title);
+    setMode('view');
+  }, [descriptor.title]);
+
+  // ── Rename mode: inline input ──────────────────────────────────────────
+  if (mode === 'rename') {
+    return (
+      <div className="flex items-center gap-1 rounded bg-tab-active px-2 py-1">
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+            else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+          }}
+          maxLength={64}
+          aria-label={t('renameLabel', { title: descriptor.title })}
+          className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none"
+        />
+        <RowIconButton icon={Check} label={t('confirmRename')} onClick={commitRename} />
+        <RowIconButton icon={X} label={t('cancel')} onClick={cancel} />
+      </div>
+    );
+  }
+
+  // ── View / confirmKill mode ────────────────────────────────────────────
+  return (
+    <div
+      className={[
+        'group flex items-center gap-1 rounded pl-2 pr-1 transition-colors',
+        active ? 'bg-tab-active' : 'hover:bg-tab-hover',
+      ].join(' ')}
+    >
+      <button
+        type="button"
+        aria-current={active ? 'true' : undefined}
+        onClick={() => onSelect(descriptor.terminalId)}
+        className={[
+          'flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-sm transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          active ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground',
+        ].join(' ')}
+      >
+        <TerminalSquare aria-hidden className="size-4 shrink-0" />
+        <span className="truncate">{t('tabLabel', { title: descriptor.title })}</span>
+      </button>
+
+      {mode === 'confirmKill' ? (
+        <>
+          <RowIconButton icon={Check} label={t('confirmKill')} danger onClick={() => onKill(descriptor.terminalId)} />
+          <RowIconButton icon={X} label={t('cancel')} onClick={() => setMode('view')} />
+        </>
+      ) : (
+        <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <RowIconButton icon={Pencil} label={t('rename')} onClick={() => { setDraft(descriptor.title); setMode('rename'); }} />
+          <RowIconButton icon={Trash2} label={t('kill')} danger onClick={() => setMode('confirmKill')} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── RowIconButton ─────────────────────────────────────────────────────────────
+
+interface RowIconButtonProps {
+  icon: typeof Pencil;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}
+
+/** Small square icon button used for the per-row rename/kill/confirm actions. */
+function RowIconButton({ icon: Icon, label, onClick, danger }: RowIconButtonProps): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className={[
+        'grid size-7 shrink-0 place-items-center rounded transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        danger
+          ? 'text-muted-foreground hover:bg-danger/15 hover:text-danger'
+          : 'text-muted-foreground hover:bg-tab-hover hover:text-foreground',
+      ].join(' ')}
+    >
+      <Icon aria-hidden className="size-4" />
+    </button>
   );
 }

@@ -6,7 +6,9 @@
       "env": {
         "DDX_TERM_SOCKET": "/tmp/ddx-term.sock",
         "DDX_TERM_SESSION": "ddx-shared",
-        "DDX_TERM_DEFAULT": "t01"
+        "DDX_TERM_DEFAULT": "t01",
+        "DDX_TERM_BROKER_PORT": "13330",
+        "DDX_TERM_WEB_PORT": "13340"
       }
     }
   }

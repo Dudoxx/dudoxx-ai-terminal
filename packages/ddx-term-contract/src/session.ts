@@ -57,6 +57,27 @@ export const DEFAULT_INPUT_ARBITRATION: InputArbitration = 'AGENT_OWN_WINDOW';
  * these; it carries the canonical dimensions every renderer must clamp to and
  * the active policies. Per-terminal records live in TerminalDescriptor.
  */
+/**
+ * Health response shape for the broker's GET /api/v1/session/health endpoint.
+ *
+ * The `service` literal ('ddx-term-broker') is the anti-zombie discriminator:
+ * any foreign process occupying port 13330 cannot satisfy this literal, so a
+ * successful parse proves the responder is the real broker (FM#2).
+ */
+export const BrokerHealthSchema = z.object({
+  /** Fixed service identity — must be the literal string 'ddx-term-broker'. */
+  service: z.literal('ddx-term-broker'),
+  /** Semver version string from the broker's package.json. */
+  version: z.string().min(1),
+  /** True when the broker has an active, attached tmux session. */
+  healthy: z.boolean(),
+  /** tmux session name (env DDX_TERM_SESSION, default 'ddx-shared'). */
+  sessionId: z.string().min(1),
+  /** tmux -S socket path (env DDX_TERM_SOCKET, default '/tmp/ddx-term.sock'). */
+  socketPath: z.string().min(1),
+});
+export type BrokerHealth = z.infer<typeof BrokerHealthSchema>;
+
 export const SessionDescriptorSchema = z.object({
   /** tmux session name (env DDX_TERM_SESSION, default 'ddx-shared'). */
   sessionId: z.string().min(1),

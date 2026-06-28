@@ -35,3 +35,11 @@
   2026-06-28 · [TERM-WEB] · DISCOVERY · WebSocket frames and input require explicit end-to-end handling for live terminal functionality.
   2026-06-28 · [TERM-MCP] · RULE · The `DDX_TERM_BROKER_URL` must include the `/api/v1` broker prefix.
   2026-06-28 · [GENERAL] · RULE · Make `TermListEntry.active` optional with a default of `false` for flexibility.
+
+- 2026-06-28 · ccb7ad9 · domains:  term-broker term-mcp term-web meta. Net-new lessons: 6.
+  2026-06-28 · [TERM-WEB] · PITFALL · Avoid using native `<select>` for complex UI like font/theme pickers; use custom controls instead.
+  2026-06-28 · [TERM-WEB] · RULE · Persist terminal appearance settings (font size, theme) to localStorage for live application and cross-tab sync.
+  2026-06-28 · [TERM-WEB] · RULE · Use `useSyncExternalStore` for cross-tab synchronization of UI state like terminal appearance.
+  2026-06-28 · [TERM-WEB] · RULE · Centralize appearance logic (themes, fonts, sizes) in a dedicated module (`appearance.ts`).
+  2026-06-28 · [TERM-WEB] · DISCOVERY · xterm's `ITheme` cannot parse OKLCH; raw hex is an acceptable exemption for custom themes.
+  2026-06-28 · [GENERAL] · RULE · Document pty-leak prevention strategies in invariants for future reference.

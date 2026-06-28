@@ -63,6 +63,13 @@ export interface XtermClientCallbacks {
   onStateChange: (state: ConnectionState) => void;
   onData: (data: string) => void;
   /**
+   * Called when the broker emits a `window-close` frame for THIS terminal's
+   * window (the shell exited — e.g. the user typed `exit`). Carries the tmux
+   * windowId that closed; the page maps it back to a terminalId via the
+   * descriptor list and tears down the tab. Optional.
+   */
+  onExit?: (windowId: string) => void;
+  /**
    * Called after the WS auto-reconnects following a drop (e.g. the broker
    * restarted). The page should re-fetch the terminal snapshot and return its
    * text so the just-reconnected socket can repaint the current frame before
@@ -193,6 +200,17 @@ export class XtermClient {
       const normalized = snapshotText.replace(/\r?\n/g, '\r\n');
       this.terminal.write(normalized);
     }
+  }
+
+  /**
+   * Clear the visible viewport + scrollback of the LIVE terminal (Cmd/Ctrl+K).
+   * This is a CLIENT-SIDE display clear only — it wipes what xterm shows, it does
+   * NOT run `clear`/reset in the shell (the tmux buffer is the broker's canonical
+   * state, shared with the agent; the human clearing their view must not mutate
+   * what the agent sees). The next live frame or a snapshot restore repaints.
+   */
+  clear(): void {
+    this.terminal?.clear();
   }
 
   /**
@@ -330,8 +348,14 @@ export class XtermClient {
         // here — the grids stay aligned by construction.
         break;
 
-      case 'window-add':
       case 'window-close':
+        // The shell exited (e.g. user typed `exit`). Surface the closed windowId
+        // so the page can map it to a terminalId and tear down the tab — without
+        // this, an exited terminal lingered in the UI until the next poll.
+        this.callbacks.onExit?.(frame.windowId);
+        break;
+
+      case 'window-add':
       case 'process-snapshot':
       case 'error':
         // These frames are handled at the page level by the tab bar / status

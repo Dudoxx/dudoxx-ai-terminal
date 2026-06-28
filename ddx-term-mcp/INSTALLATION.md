@@ -91,7 +91,17 @@ in its tool list.
 | `DDX_TERM_ALLOWLIST` | _(unset)_ | path to a command allow-list file; unset = every command allowed |
 | `DDX_TERM_MAX_READ_LINES` | `2000` | hard cap on lines a single `term_read` returns |
 | `DDX_TERM_MAX_TERMINALS` | `16` | maximum terminals per session |
-| `DDX_TERM_BROKER_URL` | _(unset)_ | set → register/resolve terminals against a running broker so the **web view sees agent-created terminals**; unset → standalone (the MCP makes tmux windows directly, the broker/web never learn of them). **MUST include the broker's API prefix: `http://localhost:6481/api/v1`** (not the bare host — the broker mounts routes under `/api/v1`). |
+| `DDX_TERM_BROKER_PORT` | `13330` | broker HTTP/WS port the supervisor spawns on |
+| `DDX_TERM_WEB_PORT` | `13340` | web UI HTTP port the supervisor spawns on |
+| `DDX_TERM_HOST` | `127.0.0.1` | bind/connect host (loopback by design) |
+| `DDX_TERM_WEB` | _(unset → web on)_ | set `0` to run broker-only (supervisor skips the web tier) |
+| `DDX_TERM_BROKER_URL` | _(written by supervisor)_ | the supervisor sets this after it spawns the broker. Set by hand ONLY to attach to an already-running broker — and then it **MUST include the API prefix: `http://localhost:13330/api/v1`** (not the bare host — the broker mounts routes under `/api/v1`), else registry resolution fails silently. |
+
+> **Overrides via `.env`.** Beyond the client `env:` block, the MCP loads a project-local
+> `.env` (CWD) and a global `~/.ddx-term/.env` before resolving ports — `override: false`, so
+> an explicit `env:` value always wins. Copy the repo's `.env.example` to either path to move
+> the whole stack onto a different port band. The broker + web load the same files for the
+> standalone `pnpm dev` path.
 
 ## 5. Watch the agent live (optional)
 

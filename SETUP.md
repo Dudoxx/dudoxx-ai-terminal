@@ -3,20 +3,29 @@
 How to run the bridge locally and connect all three channels. Assumes
 [`INSTALLATION.md`](./INSTALLATION.md) is done (`pnpm install` + `pnpm build`).
 
-## One-command dev bring-up
+## Two ways to bring the stack up
+
+**1. Agent-driven (normal path) — the MCP supervisor spawns everything.**
+After `pnpm build` + MCP registration, just call a `term_*` verb. On the first call the MCP
+server's supervisor spawns the broker (`13330`) and web (`13340`), lock-protected as a
+machine-wide singleton, and attaches to them. Nothing to start by hand. Set `DDX_TERM_WEB=0`
+to run broker-only. Then open **http://localhost:13340**.
+
+**2. Manual dev loop — for hacking on the broker/web themselves.**
 ```sh
-pnpm dev          # turbo: broker (6481) + web (3460) together
+pnpm dev          # turbo: broker (13330) + web (13340) together
 ```
-- Broker: http://127.0.0.1:6481 (Swagger at `/docs`).
-- Web UI: http://localhost:3460 — open this.
+- Broker: http://127.0.0.1:13330 (Swagger at `/docs`).
+- Web UI: http://localhost:13340 — open this.
 - The **MCP server is NOT part of `pnpm dev`** — it is launched over stdio by the MCP
   client (Claude Code / Desktop), not as a long-running process.
 
 > Do not run `pnpm dev` inside an automated agent session — it is a long-running
-> foreground process. Use `pnpm typecheck`/`test` for verification instead.
+> foreground process. Use `pnpm typecheck`/`test` for verification instead. (For agent use,
+> let the supervisor spawn the stack — path 1 above.)
 
 ## Connect the three channels
-1. **Human (web)** — open http://localhost:3460. Each terminal is a tab.
+1. **Human (web)** — open http://localhost:13340. Each terminal is a tab.
 2. **Agent (MCP)** — register the MCP (see INSTALLATION) and call `term_create` /
    `term_send`; the output appears live in the web tab.
 3. **Human (native, optional)** — attach the shared session in iTerm2 / WezTerm:

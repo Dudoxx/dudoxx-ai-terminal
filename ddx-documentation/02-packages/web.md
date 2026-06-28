@@ -11,7 +11,7 @@ updated: 2026-06-28
 **Location:** `ddx-term-web`
 **Role:** the **human channel** UI — renders the shared terminals with xterm.js.
 **Stack:** Next.js 16 App Router, React 19, Tailwind v4, next-intl (en/de/fr).
-**Port:** **3460** (`PORT`).
+**Port:** **13340** (`PORT`).
 **Published:** No — `private`, `UNLICENSED`.
 
 ## Custom server (not plain `next dev`)
@@ -24,7 +24,7 @@ The custom server:
 
 1. Runs the Next request handler for all HTTP (pages, `/api` rewrites, assets).
 2. Intercepts `upgrade` events matching `/term/<terminalId>` and bridges them to the
-   broker's WS (`DDX_TERM_BROKER_WS`, default `ws://127.0.0.1:6481`), piping frames
+   broker's WS (`DDX_TERM_BROKER_WS`, default `ws://127.0.0.1:13330`), piping frames
    both ways.
 
 This keeps the browser on a **single origin** — it connects same-origin
@@ -34,7 +34,7 @@ to the browser. Next's own HMR websocket (and any non-`/term/` upgrade) is left 
 Next.
 
 ```sh
-pnpm --filter ddx-term-web dev    # NODE_ENV=development node server.mjs (port 3460)
+pnpm --filter ddx-term-web dev    # NODE_ENV=development node server.mjs (port 13340)
 ```
 
 ## The xterm.js client
@@ -74,7 +74,7 @@ blank pane waiting for output.
 ## Build & test
 
 ```sh
-pnpm --filter ddx-term-web dev          # custom WS-proxy server, port 3460
+pnpm --filter ddx-term-web dev          # custom WS-proxy server, port 13340
 pnpm --filter ddx-term-web build        # next build
 pnpm --filter ddx-term-web typecheck    # tsc --noEmit
 pnpm --filter ddx-term-web lint         # next lint

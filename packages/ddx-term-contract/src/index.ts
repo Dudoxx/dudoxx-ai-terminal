@@ -17,3 +17,4 @@ export * from './terminal';
 export * from './session';
 export * from './ws-frames';
 export * from './mcp-tools';
+export * from './ports';

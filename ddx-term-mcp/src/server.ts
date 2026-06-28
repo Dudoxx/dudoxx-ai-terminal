@@ -31,8 +31,10 @@ import { z } from 'zod/v4';
 
 import { AllowList } from './allow-list.js';
 import { loadConfig, type ToolContext } from './context.js';
+import { loadDotenv } from './load-dotenv.js';
 import { ReadCursor } from './read-cursor.js';
 import { toErrorBody } from './errors.js';
+import { ensureStack } from './supervisor/ensure-stack.js';
 
 /**
  * Server version. Injected at build time by tsup `define` from package.json
@@ -46,6 +48,19 @@ import { buildResolver } from './resolver-factory.js';
 import { TmuxClient } from './tmux/tmux.client.js';
 import { TERM_TOOL_DESCRIPTIONS, dispatch } from './tools/registry.js';
 
+/**
+ * Memoised one-shot pre-flight: runs ensureStack exactly once per process
+ * lifetime.  Resolved on first verb dispatch (NOT at stdio connect — connect
+ * must stay fast).  Subsequent calls return the same settled promise.
+ */
+function makeEnsureOnce(env: NodeJS.ProcessEnv): () => Promise<void> {
+  let memo: Promise<void> | undefined;
+  return (): Promise<void> => {
+    if (memo === undefined) memo = ensureStack(env);
+    return memo;
+  };
+}
+
 /** Assemble the ToolContext from env (broker- or standalone-mode resolver). */
 export function buildContext(env: NodeJS.ProcessEnv): ToolContext {
   const config = loadConfig(env);
@@ -57,7 +72,16 @@ export function buildContext(env: NodeJS.ProcessEnv): ToolContext {
 }
 
 /** Build a low-level MCP Server wired to the term verbs. */
-export function buildServer(ctx: ToolContext): Server {
+export function buildServer(env: NodeJS.ProcessEnv): Server {
+  const ensureOnce = makeEnsureOnce(env);
+  // ToolContext is built lazily after ensureStack so buildResolver sees
+  // DDX_TERM_BROKER_URL and takes the BrokerRestResolver path.
+  let ctx: ToolContext | undefined;
+  function getCtx(): ToolContext {
+    if (ctx === undefined) ctx = buildContext(env);
+    return ctx;
+  }
+
   const server = new Server(
     { name: 'ddx-term-mcp', version: SERVER_VERSION },
     {
@@ -81,6 +105,15 @@ export function buildServer(ctx: ToolContext): Server {
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    // ensureOnce runs the stack pre-flight exactly once; subsequent verbs
+    // return the already-settled promise immediately.
+    try {
+      await ensureOnce();
+    } catch (err: unknown) {
+      const body = toErrorBody(err);
+      return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }] };
+    }
+
     const name = req.params.name;
     if (!TERM_TOOL_NAMES.includes(name as TermToolName)) {
       const body = toErrorBody(new Error(`unknown tool: ${name}`));
@@ -94,9 +127,9 @@ export function buildServer(ctx: ToolContext): Server {
       return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }] };
     }
     try {
-      const result = await dispatch(ctx, toolName, parsed.data);
+      const result = await dispatch(getCtx(), toolName, parsed.data);
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-    } catch (err) {
+    } catch (err: unknown) {
       const body = toErrorBody(err);
       return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }] };
     }
@@ -106,12 +139,21 @@ export function buildServer(ctx: ToolContext): Server {
 }
 
 async function main(): Promise<void> {
-  const ctx = buildContext(process.env);
-  const server = buildServer(ctx);
+  // Layer in .env overrides (project .env, then global ~/.ddx-term/.env) BEFORE
+  // anything reads process.env — buildServer → ensureStack → resolvePorts must
+  // see them. override:false keeps an explicit client `env:` value authoritative.
+  const loaded = loadDotenv();
+  if (loaded.length > 0) {
+    process.stderr.write(`[ddx-term-mcp] loaded .env from: ${loaded.join(', ')}\n`);
+  }
+
+  const server = buildServer(process.env);
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // Config is read from env at connect time for the log line only.
+  const cfg = loadConfig(process.env);
   process.stderr.write(
-    `[ddx-term-mcp] connected. socket=${ctx.config.socket} session=${ctx.config.session} default=${ctx.config.defaultTerminal}\n`,
+    `[ddx-term-mcp] connected. socket=${cfg.socket} session=${cfg.session} default=${cfg.defaultTerminal}\n`,
   );
 }
 

@@ -44,9 +44,24 @@ async function fetchSnapshot(id: string): Promise<string> {
   return body.content ?? '';
 }
 
-async function createTerminal(): Promise<TerminalDescriptor> {
-  const res = await fetch('/api/v1/terminals', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) });
+async function createTerminal(title?: string): Promise<TerminalDescriptor> {
+  const body = title ? { title } : {};
+  const res = await fetch('/api/v1/terminals', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`POST /terminals failed: ${res.status}`);
+  return res.json() as Promise<TerminalDescriptor>;
+}
+
+async function destroyTerminal(id: string): Promise<void> {
+  const res = await fetch(`/api/v1/terminals/${id}`, { method: 'DELETE' });
+  // 204 No Content on success; DELETE is idempotent broker-side (already-gone → 204).
+  if (!res.ok && res.status !== 404) throw new Error(`DELETE /terminals/${id} failed: ${res.status}`);
+}
+
+async function renameTerminal(id: string, title: string): Promise<TerminalDescriptor> {
+  const res = await fetch(`/api/v1/terminals/${id}`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(`PATCH /terminals/${id} failed: ${res.status}`);
   return res.json() as Promise<TerminalDescriptor>;
 }
 
@@ -125,6 +140,11 @@ export default function TerminalPage(): React.JSX.Element {
       onStateChange: (state) => setConnState(state),
       onData: () => { /* keystrokes handled internally by xterm */ },
       onReconnect: () => fetchSnapshot(id),
+      // Shell exited (e.g. `exit`): the broker sent window-close for this tab's
+      // window. Drop it from the list and select a neighbor so the UI never
+      // shows a dead terminal. The frame carries windowId; this client IS the
+      // closed terminal, so we remove by the id it was opened with.
+      onExit: () => removeTerminal(id),
     };
 
     // Construct with the CURRENT appearance so the first paint already matches
@@ -154,16 +174,81 @@ export default function TerminalPage(): React.JSX.Element {
     clientRef.current?.applyAppearance(appearance);
   }, [appearance]);
 
+  // ── Remove a terminal from local state, selecting a neighbor ────────────
+  // Shared by onExit (shell exited) and handleKill (user killed it): drop the id
+  // and, if it was active, move selection to the nearest surviving tab (or null).
+  const removeTerminal = useCallback((id: string) => {
+    setTerminals((prev) => {
+      const next = prev.filter((term) => term.terminalId !== id);
+      setActiveId((cur) => {
+        if (cur !== id) return cur;
+        const idx = prev.findIndex((term) => term.terminalId === id);
+        const neighbor = next[Math.min(idx, next.length - 1)];
+        return neighbor ? neighbor.terminalId : null;
+      });
+      return next;
+    });
+  }, []);
+
   // ── Create new terminal ────────────────────────────────────────────────
+  // Cmd/Ctrl+N and the +New button pass an adequate auto title (Terminal N) so a
+  // fresh terminal is never an unnamed "bash"/"zsh" — the broker slugifies it to
+  // the terminalId and labels the tmux window with it.
   const handleNew = useCallback(async () => {
     try {
-      const descriptor = await createTerminal();
+      const title = t('newTerminalTitle', { n: terminals.length + 1 });
+      const descriptor = await createTerminal(title);
       setTerminals((prev) => [...prev, descriptor]);
       setActiveId(descriptor.terminalId);
     } catch (err) {
       console.error('Failed to create terminal:', err);
     }
+  }, [t, terminals.length]);
+
+  // ── Kill a terminal (DELETE) ────────────────────────────────────────────
+  const handleKill = useCallback(async (id: string) => {
+    // Optimistically drop it; the DELETE is idempotent broker-side. On failure
+    // the 2s poll re-adds it, so a transient error self-heals.
+    removeTerminal(id);
+    try {
+      await destroyTerminal(id);
+    } catch (err) {
+      console.error('Failed to kill terminal:', err);
+    }
+  }, [removeTerminal]);
+
+  // ── Rename a terminal (PATCH) ───────────────────────────────────────────
+  const handleRename = useCallback(async (id: string, title: string) => {
+    try {
+      const updated = await renameTerminal(id, title);
+      setTerminals((prev) =>
+        prev.map((term) => (term.terminalId === id ? updated : term)),
+      );
+    } catch (err) {
+      console.error('Failed to rename terminal:', err);
+    }
   }, []);
+
+  // ── Keyboard shortcuts: Cmd/Ctrl+K clear · Cmd/Ctrl+N new ───────────────
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.altKey || e.shiftKey) return;
+      const key = e.key.toLowerCase();
+      if (key === 'k') {
+        e.preventDefault();
+        clientRef.current?.clear();
+      } else if (key === 'n') {
+        // Browser may intercept Cmd+N for a new window before this fires; the
+        // +New button is the guaranteed path. We still preventDefault to claim
+        // it where the browser allows (e.g. focused PWA / standalone window).
+        e.preventDefault();
+        void handleNew();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleNew]);
 
   const activeDescriptor = terminals.find((term) => term.terminalId === activeId);
 
@@ -179,6 +264,8 @@ export default function TerminalPage(): React.JSX.Element {
         loading={loading}
         onSelect={setActiveId}
         onCreate={() => void handleNew()}
+        onRename={(id, title) => void handleRename(id, title)}
+        onKill={(id) => void handleKill(id)}
         onToggleCollapsed={toggleCollapsed}
       />
 

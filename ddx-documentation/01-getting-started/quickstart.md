@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Bring the bridge up — pnpm dev for broker + web at :3460, register the MCP agent channel, and attach natively via iTerm2 tmux -CC.
+description: Bring the bridge up — pnpm dev for broker + web at :13340, register the MCP agent channel, and attach natively via iTerm2 tmux -CC.
 audience: developers
 tags: [quickstart, pnpm-dev, mcp-registration, tmux-cc, walkthrough]
 updated: 2026-06-28
@@ -13,10 +13,10 @@ This walks all three channels onto the same shared tmux session.
 ## 1. Start the human channel (broker + web)
 
 ```sh
-pnpm dev          # turbo run dev → broker (6481) + web (3460), concurrently
+pnpm dev          # turbo run dev → broker (13330) + web (13340), concurrently
 ```
 
-Open the web UI at **http://localhost:3460**. The broker creates (or re-adopts) the
+Open the web UI at **http://localhost:13340**. The broker creates (or re-adopts) the
 `ddx-shared` tmux session on socket `/tmp/ddx-term.sock` and renders its terminals as
 tabs. Each tab is one `terminalId`; switching tabs resubscribes the WS and restores a
 snapshot rather than reconnecting.
@@ -72,7 +72,7 @@ term_read                                  → read the new output (delta)
 term_snapshot                              → look at the whole visible screen
 ```
 
-The `echo hello` you sent appears **live in the web UI** at :3460 — that shared-state
+The `echo hello` you sent appears **live in the web UI** at :13340 — that shared-state
 property is the whole point. Full tool reference: [tools](../03-mcp-reference/tools.md).
 
 ## 5. (Optional) Attach natively, no browser

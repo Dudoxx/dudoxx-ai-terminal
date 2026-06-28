@@ -1,5 +1,24 @@
 # @dudoxx/ddx-term-mcp
 
+## 0.2.0
+
+### Minor Changes
+
+- **Default ports moved to the 133XX band** (broker `13330`, web `13340`) to avoid
+  colliding with common dev servers (3000/5173/8080). **Breaking** for anyone who
+  hardcoded the old `6481`/`3460` — override via `DDX_TERM_BROKER_PORT` /
+  `DDX_TERM_WEB_PORT`.
+- **Layered `.env` override support** — the MCP loads a project-local `.env` and a
+  global `~/.ddx-term/.env` before resolving ports (`override: false`, so an explicit
+  client `env:` value always wins). Broker + web load the same files for the
+  standalone `pnpm dev` path.
+- **Supervisor auto-spawn** — on the first `term_*` verb the MCP spawns the broker +
+  web as a machine-wide singleton (lock-protected; `PORT_CONFLICT` on a foreign
+  process; `DDX_TERM_WEB=0` for headless), then attaches.
+- **MIT licensed** — the package now ships a LICENSE file; the repo is open-source.
+- Tooling: ESLint 9 flat config across the monorepo; `dotenv` bundled into
+  `dist/server.js`.
+
 ## 0.1.3
 
 ### Patch Changes
