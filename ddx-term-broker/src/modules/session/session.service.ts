@@ -102,6 +102,10 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     await this.ensureSession();
     // Seed paneId → windowId from any pre-existing windows (reused session).
     await this.syncPaneMap();
+    // Boot reconcile (0.D): the registry is in-memory and lost on restart while
+    // tmux windows survive. Adopt surviving windows + drop entries whose window
+    // is gone, so term_list / the web viewer reconnect after a broker restart.
+    await this.reconcileRegistry();
     this.logger.log(
       `Session '${SESSION_NAME}' ready on socket ${SOCKET_PATH}`,
     );
@@ -213,21 +217,38 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Destroy a terminal: kill the tmux window and remove from registry.
-   * Throws if terminalId is not registered.
+   *
+   * IDEMPOTENT (0.C): the registry entry is evicted in a `finally`, so a
+   * `kill-window` that fails because the window is ALREADY gone (orphan, or a
+   * concurrent destroy) still clears the registry and resolves — never leaving a
+   * stale entry that `term_list` shows but every subsequent op can't resolve.
+   * Throws only if terminalId was never registered (caller maps to 404).
    */
   async destroyTerminal(terminalId: TerminalId): Promise<void> {
     const descriptor = this.registry.get(terminalId);
     if (!descriptor) {
       throw new Error(`Terminal not found: ${terminalId}`);
     }
-    await this.exec('tmux', [
-      ...tmux('kill-window', '-t', `${SESSION_NAME}:${descriptor.windowId}`),
-    ]);
-    this.registry.delete(terminalId);
-    // Drop any paneId bindings that pointed at the killed window.
-    for (const [paneId, windowId] of this.paneToWindow.entries()) {
-      if (windowId === descriptor.windowId) {
-        this.paneToWindow.delete(paneId);
+    try {
+      await this.exec('tmux', [
+        ...tmux('kill-window', '-t', `${SESSION_NAME}:${descriptor.windowId}`),
+      ]);
+    } catch (err: unknown) {
+      // A missing window is success, not failure — the desired end-state (no
+      // such window) already holds. Any other tmux error is logged but must not
+      // block registry eviction (avoids the orphan that breaks the tab-close UI).
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `kill-window for ${terminalId} (${descriptor.windowId}) returned: ${msg} ` +
+          `— treating as already-gone, evicting registry`,
+      );
+    } finally {
+      this.registry.delete(terminalId);
+      // Drop any paneId bindings that pointed at the killed window.
+      for (const [paneId, windowId] of this.paneToWindow.entries()) {
+        if (windowId === descriptor.windowId) {
+          this.paneToWindow.delete(paneId);
+        }
       }
     }
     this.logger.log(`Terminal destroyed: ${terminalId} (${descriptor.windowId})`);
@@ -386,6 +407,108 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.warn(`syncPaneMap failed (non-fatal): ${msg}`);
     }
+  }
+
+  /**
+   * Boot-time registry↔tmux reconcile (0.D). The registry is in-memory, so a
+   * broker restart loses every terminalId↔windowId binding while the tmux
+   * windows survive (the session is deliberately not killed on shutdown). Without
+   * this, `GET /terminals` returns stale/empty and the web viewer can't reconnect.
+   *
+   * Strategy:
+   *   1. List live tmux windows (id + name).
+   *   2. Drop registry entries whose window no longer exists (orphans from 0.C
+   *      or pre-restart state).
+   *   3. Adopt live windows not already in the registry — rebuild a descriptor
+   *      from the window name (slug → terminalId) + a fresh PID/cwd snapshot.
+   *      Window 0 (the human shell) is adopted too so the human tab survives.
+   *
+   * Best-effort: a tmux failure leaves the registry as-is (logged, non-fatal).
+   * Idempotent — safe to call on every boot and after a reused session.
+   */
+  private async reconcileRegistry(): Promise<void> {
+    let windows: Array<{ windowId: WindowId; name: string }>;
+    try {
+      const { stdout } = await this.exec('tmux', [
+        ...tmux(
+          'list-windows', '-t', SESSION_NAME,
+          '-F', '#{window_id} #{window_name}',
+        ),
+      ]);
+      windows = stdout
+        .split('\n')
+        .map((row) => row.trim())
+        .filter((row) => row.length > 0)
+        .map((row) => {
+          const sep = row.indexOf(' ');
+          const windowId = (sep === -1 ? row : row.slice(0, sep)) as WindowId;
+          const name = sep === -1 ? '' : row.slice(sep + 1);
+          return { windowId, name };
+        });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`reconcileRegistry: list-windows failed (non-fatal): ${msg}`);
+      return;
+    }
+
+    const liveWindowIds = new Set(windows.map((w) => w.windowId));
+
+    // 2. Drop registry entries whose window is gone.
+    let dropped = 0;
+    for (const [terminalId, descriptor] of this.registry.entries()) {
+      if (!liveWindowIds.has(descriptor.windowId)) {
+        this.registry.delete(terminalId);
+        dropped += 1;
+      }
+    }
+
+    // 3. Adopt live windows not yet registered.
+    const knownWindowIds = new Set(
+      Array.from(this.registry.values()).map((d) => d.windowId),
+    );
+    let adopted = 0;
+    for (const { windowId, name } of windows) {
+      if (knownWindowIds.has(windowId)) continue;
+
+      // Derive a terminalId from the window name; fall back to a numeric slug.
+      this.windowCounter += 1;
+      const slugBase = name
+        ? name.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 32)
+        : '';
+      let slug = slugBase || `t${String(this.windowCounter).padStart(2, '0')}`;
+      // Guard against a name collision with an already-adopted terminalId.
+      if (this.registry.has(toTerminalId(slug))) {
+        slug = `${slug}-${this.windowCounter}`;
+      }
+      const terminalId = toTerminalId(slug);
+
+      try {
+        const pids = await this.resolvePids(windowId);
+        const descriptor: TerminalDescriptor = {
+          terminalId,
+          windowId,
+          title: name || slug,
+          panePid: pids.panePid,
+          fgPid: pids.fgPid,
+          cwd: await this.resolveCwd(windowId),
+          command: await this.resolveCommand(windowId),
+          createdAt: Date.now(),
+        };
+        this.registry.set(terminalId, descriptor);
+        adopted += 1;
+      } catch (err: unknown) {
+        // A window that vanished between list and snapshot — skip it.
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `reconcileRegistry: could not adopt ${windowId} (${name}): ${msg}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `Registry reconciled — ${this.registry.size} terminal(s) ` +
+        `(adopted ${adopted}, dropped ${dropped})`,
+    );
   }
 
   async resolvePids(windowId: WindowId): Promise<PidSnapshot> {

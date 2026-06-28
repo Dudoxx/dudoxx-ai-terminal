@@ -36,6 +36,19 @@ WebSocket. Default port **6481** (`DDX_TERM_BROKER_PORT`), host `127.0.0.1`
 - Per-terminalId WS fan-out only: a busy build in terminal A NEVER pushes frames
   to subscribers of terminal B (RESPONSIVENESS §2.8). Output is coalesced per
   terminal for flood control.
+- **Registry survives broker restarts** — the in-memory registry is rebuilt on
+  boot by `SessionService.reconcileRegistry()` (runs in `onModuleInit` after
+  `syncPaneMap`): it lists live tmux windows, ADOPTS any window the registry
+  doesn't know (deriving the terminalId from the window name), and DROPS entries
+  whose window is gone. The tmux session is deliberately NOT killed on shutdown,
+  so this is what lets `term_list` + the web viewer reconnect after a restart.
+  Any new registry-mutating path must stay reconcile-safe (idempotent over a
+  reused session).
+- **`destroyTerminal` is idempotent** — registry eviction happens in a `finally`,
+  and a `kill-window` that fails because the window is already gone is treated as
+  success. REST `DELETE /:id` on an already-gone terminal returns 204 (no-op), not
+  404/500. Never reintroduce a destroy path that throws before evicting the
+  registry (that orphan breaks the tab-close UI).
 - All shared types from `@ddx/term-contract` — never redefine a frame/descriptor.
 - Address by `terminalId`; signal/observe by `pid`; validate a pid ∈ the
   terminal's process tree before any signal. Zero `any`.

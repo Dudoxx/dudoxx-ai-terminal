@@ -19,6 +19,7 @@
  */
 
 import { Test } from '@nestjs/testing';
+import { toTerminalId } from '@ddx/term-contract';
 import { SessionService, EXEC_RUNNER, type ExecRunner } from './session.service';
 
 /** Build an ExecRunner mock that records calls and returns configured outputs. */
@@ -220,9 +221,83 @@ describe('SessionService › terminal registry', () => {
     const svc = await buildModule(runner);
     await svc.onModuleInit();
 
-    const { toTerminalId } = await import('@ddx/term-contract');
     await expect(
       svc.destroyTerminal(toTerminalId('nonexistent')),
     ).rejects.toThrow('Terminal not found');
+  });
+
+  it('destroyTerminal is idempotent — a missing tmux window still evicts (0.C)', async () => {
+    // kill-window throws "can't find window" (already gone), but the registry
+    // entry MUST still be evicted and the call MUST resolve — no orphan left.
+    const { runner } = makeRunner({
+      'kill-window': { error: new Error("can't find window: @1") },
+    });
+    const svc = await buildModule(runner);
+    await svc.onModuleInit();
+
+    const descriptor = await svc.createTerminal('zombie');
+    expect(svc.listTerminals()).toHaveLength(1);
+
+    await expect(svc.destroyTerminal(descriptor.terminalId)).resolves.toBeUndefined();
+    expect(svc.listTerminals()).toHaveLength(0);
+    expect(svc.resolveWindowId(descriptor.terminalId)).toBeUndefined();
+  });
+});
+
+// ── Boot reconcile (0.D registry↔tmux drift) ─────────────────────────────────
+
+describe('SessionService › boot reconcile (0.D registry↔tmux drift)', () => {
+  it('adopts surviving tmux windows into the registry on boot', async () => {
+    // Reused session with two live windows the (empty) registry never saw —
+    // a broker restart. reconcileRegistry must adopt both so term_list works.
+    const { runner } = makeRunner({
+      'has-session': { stdout: '' }, // session already exists → reused
+      'list-windows': { stdout: '@0 human\n@1 build\n' },
+      pane_pid: { stdout: '4242\n' },
+    });
+    const svc = await buildModule(runner);
+    await svc.onModuleInit();
+
+    const list = svc.listTerminals();
+    expect(list).toHaveLength(2);
+    const windowIds = list.map((d) => d.windowId).sort();
+    expect(windowIds).toEqual(['@0', '@1']);
+    // The window NAME becomes the terminalId slug.
+    expect(svc.resolveWindowId(toTerminalId('build'))).toBe('@1');
+    expect(svc.resolveWindowId(toTerminalId('human'))).toBe('@0');
+  });
+
+  it('drops registry entries whose tmux window no longer exists', async () => {
+    // Boot with a fresh session (no live windows reported), then a created
+    // terminal whose window tmux later reports as gone is reconciled away.
+    let windowsOut = '@1 alive\n';
+    const runner: ExecRunner = async (file, args) => {
+      const key = [file, ...args].join(' ');
+      if (key.includes('has-session')) return { stdout: '', stderr: '' }; // reused
+      if (key.includes('list-windows')) return { stdout: windowsOut, stderr: '' };
+      if (key.includes('list-panes')) return { stdout: '', stderr: '' };
+      if (key.includes('new-window')) return { stdout: '@2\n', stderr: '' };
+      if (key.includes('rename-window')) return { stdout: '', stderr: '' };
+      if (key.includes('pane_id')) return { stdout: '%2\n', stderr: '' };
+      if (key.includes('pane_pid')) return { stdout: '777\n', stderr: '' };
+      if (key.includes('pane_current_path')) return { stdout: '/tmp\n', stderr: '' };
+      if (key.includes('pane_current_command')) return { stdout: 'zsh\n', stderr: '' };
+      if (file === 'pgrep') return { stdout: '', stderr: '' };
+      return { stdout: '', stderr: '' };
+    };
+    const svc = await buildModule(runner);
+    await svc.onModuleInit(); // adopts @1 (alive)
+
+    // Create @2; then tmux reports only @1 — @2 is gone.
+    await svc.createTerminal('doomed'); // → @2
+    expect(svc.listTerminals().length).toBeGreaterThanOrEqual(2);
+
+    // Re-run reconcile via a second onModuleInit (list still only @1).
+    windowsOut = '@1 alive\n';
+    await svc.onModuleInit();
+
+    const remaining = svc.listTerminals();
+    expect(remaining.map((d) => d.windowId)).not.toContain('@2');
+    expect(remaining.map((d) => d.windowId)).toContain('@1');
   });
 });

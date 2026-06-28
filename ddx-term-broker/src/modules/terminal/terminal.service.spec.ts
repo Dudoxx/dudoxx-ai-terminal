@@ -170,9 +170,12 @@ describe('TerminalService › destroy', () => {
     expect(svc.list()).toHaveLength(0);
   });
 
-  it('throws NotFoundException when destroying an unknown terminalId', async () => {
+  it('is idempotent — destroying an unknown terminalId resolves as a no-op (0.C)', async () => {
     const svc = await buildModule();
-    await expect(svc.destroy('ghost')).rejects.toThrow(NotFoundException);
+    // No throw: the desired end-state (terminal gone) already holds, so a
+    // tab-close retry against an already-evicted terminal returns 204, not 404.
+    await expect(svc.destroy('ghost')).resolves.toBeUndefined();
+    expect(svc.list()).toHaveLength(0);
   });
 });
 

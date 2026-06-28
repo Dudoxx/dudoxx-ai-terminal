@@ -77,11 +77,19 @@ export class TerminalService {
     return this.sessionService.getTerminal(terminalId) as TerminalDescriptor;
   }
 
+  /**
+   * DELETE /terminals/:id — idempotent (0.C): destroying an already-gone
+   * terminal is success (204), not a 404. The desired end-state (no such
+   * terminal) already holds, so a tab-close retry never surfaces an error. The
+   * underlying SessionService.destroyTerminal is itself idempotent over a
+   * missing tmux window; here we tolerate a missing REGISTRY entry the same way.
+   */
   async destroy(rawId: string): Promise<void> {
     const terminalId = toTerminalId(rawId);
     const descriptor = this.sessionService.getTerminal(terminalId);
     if (!descriptor) {
-      throw new NotFoundException(`Terminal not found: ${rawId}`);
+      this.logger.log(`Terminal already gone, destroy is a no-op: ${rawId}`);
+      return;
     }
     await this.sessionService.destroyTerminal(terminalId);
     this.logger.log(`Terminal destroyed via REST: ${rawId}`);
