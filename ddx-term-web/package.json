@@ -1,0 +1,42 @@
+{
+  "name": "ddx-term-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DDX Terminal Web — Next.js 16 xterm.js UI for the shared multi-terminal bridge.",
+  "author": "Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "next dev --port 3460",
+    "build": "next build",
+    "start": "next start --port 3460",
+    "typecheck": "tsc --noEmit",
+    "lint": "next lint",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ddx/term-contract": "workspace:*",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/addon-webgl": "^0.18.0",
+    "@xterm/xterm": "^5.5.0",
+    "next": "16.2.6",
+    "next-intl": "^4.12.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.1",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@types/node": "^22.15.21",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.3",
+    "@vitejs/plugin-react": "^4.4.1",
+    "jsdom": "^26.1.0",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.0"
+  }
+}

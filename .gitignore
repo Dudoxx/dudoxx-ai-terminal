@@ -1,0 +1,41 @@
+# Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+dist/
+build/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+*.lcov
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+
+# tmux dev sockets
+*.sock
+
+# Findings (ephemeral by default — see ~/.claude/findings/README.md)
+findings/*
+!findings/**/.keep-in-git
+
+# Python fixture (ddx-cli-py)
+__pycache__/
+.venv/

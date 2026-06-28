@@ -1,0 +1,40 @@
+# Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>
+# Dev compose for the broker + web only. The MCP server is stdio (launched by the
+# agent client, e.g. Claude Code via .mcp.json) and is NOT a compose service.
+services:
+  ddx-term-broker:
+    build:
+      context: ./ddx-term-broker
+      dockerfile: Dockerfile
+    image: ddx-term-broker:dev
+    container_name: ddx-sbx-term-broker
+    environment:
+      - NODE_ENV=development
+      - PORT=6481
+      - DDX_TERM_SOCKET=/tmp/ddx-term.sock
+      - DDX_TERM_SESSION=ddx-shared
+    ports:
+      - '6481:6481'
+    volumes:
+      - ./ddx-term-broker:/app
+      - /app/node_modules
+    command: pnpm dev
+
+  ddx-term-web:
+    build:
+      context: ./ddx-term-web
+      dockerfile: Dockerfile
+    image: ddx-term-web:dev
+    container_name: ddx-sbx-term-web
+    environment:
+      - NODE_ENV=development
+      - PORT=3460
+      - NEXT_PUBLIC_BROKER_URL=http://localhost:6481
+    ports:
+      - '3460:3460'
+    volumes:
+      - ./ddx-term-web:/app
+      - /app/node_modules
+    depends_on:
+      - ddx-term-broker
+    command: pnpm dev

@@ -1,0 +1,66 @@
+{
+  "name": "@dudoxx/ddx-term-mcp",
+  "version": "0.1.0",
+  "description": "MCP stdio bridge — Claude Code to a shared tmux session. Thin client over tmux (no PTY): the 9 verbs + 2 helpers of the ddx-terminal-bridge agent channel.",
+  "author": "Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ddx-term-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist/server.js",
+    "assets/dudoxx-logo.png",
+    "assets/dudoxx-typography.png",
+    "README.md",
+    "INSTALLATION.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "tmux",
+    "terminal",
+    "claude",
+    "claude-code",
+    "agent",
+    "stdio",
+    "dudoxx"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dudoxx/dudoxx-ai-terminal.git",
+    "directory": "ddx-term-mcp"
+  },
+  "homepage": "https://github.com/Dudoxx/dudoxx-ai-terminal/tree/main/ddx-term-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/Dudoxx/dudoxx-ai-terminal/issues"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/server.js",
+    "build:bundle": "tsup && chmod +x dist/server.js",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "prepublishOnly": "pnpm run build:bundle"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@ddx/term-contract": "workspace:*",
+    "@types/node": "^22.10.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

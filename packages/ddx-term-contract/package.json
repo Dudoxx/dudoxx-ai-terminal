@@ -1,0 +1,39 @@
+{
+  "name": "@ddx/term-contract",
+  "version": "0.1.0",
+  "description": "DDX terminal-bridge contract — single source of truth for WS frames, MCP tool I/O schemas, and terminal/session descriptors (terminalId-addressed, pid-observed)",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "pnpm run build:esm && pnpm run build:cjs && pnpm run build:types",
+    "build:esm": "tsc -p tsconfig.esm.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "build:types": "tsc -p tsconfig.types.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.0",
+    "zod": "^4.3.6"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "author": "Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>"
+}

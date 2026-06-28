@@ -1,0 +1,25 @@
+{
+  "name": "@dudoxx/ddx-term-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-package E2E suite for ddx-terminal-bridge: real tmux, temp sockets, all ACs.",
+  "author": "Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ddx/term-contract": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "terminal": {
+    "pageTitle": "Terminaux",
+    "tabLabel": "{title}",
+    "newTerminal": "Nouveau terminal",
+    "deleteTerminal": "Supprimer",
+    "noTerminals": "Aucun terminal — créez-en un pour commencer.",
+    "connecting": "Connexion…",
+    "disconnected": "Déconnecté",
+    "connected": "Connecté",
+    "errorConnecting": "Erreur de connexion",
+    "status": {
+      "command": "Commande : {command}",
+      "pid": "PID : {pid}"
+    },
+    "snapshot": {
+      "loading": "Chargement du snapshot…",
+      "error": "Snapshot indisponible"
+    },
+    "aria": {
+      "tabBar": "Onglets de terminal",
+      "tab": "Basculer vers le terminal {title}",
+      "terminal": "Terminal : {title}",
+      "closeTab": "Fermer le terminal {title}"
+    }
+  }
+}

@@ -1,0 +1,574 @@
+{
+  "scope": "ddx-terminal-bridge",
+  "status": "completed",
+  "executionModel": "parallel",
+  "branch": "feature/ddx-terminal-bridge",
+  "parentCommit": "HEAD",
+  "resumeProtocol": "Read tasks.json; resume from first task with status=pending; respect depends_on and parallel_groups; re-read plans/ddx-terminal-bridge/_invariants.md before any edit.",
+  "parallel_groups": [
+    {
+      "group": "A",
+      "depends_on": [],
+      "tasks": [
+        "A1",
+        "A2"
+      ]
+    },
+    {
+      "group": "B",
+      "depends_on": [
+        "A"
+      ],
+      "tasks": [
+        "B1",
+        "B2",
+        "B3",
+        "B4"
+      ]
+    },
+    {
+      "group": "C",
+      "depends_on": [
+        "B"
+      ],
+      "tasks": [
+        "C1"
+      ]
+    },
+    {
+      "group": "D",
+      "depends_on": [
+        "B",
+        "C"
+      ],
+      "tasks": [
+        "D1",
+        "D2"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "A1",
+      "shard": "01-workspace-scaffold.md",
+      "subject": "Scaffold the pnpm + turbo workspace root (root package.json, pnpm-workspace.yaml, turbo.json, docker-compose.dev.yml, tsconfig base)",
+      "category": "scaffold",
+      "agent": "general-purpose",
+      "depends_on": [],
+      "status": "completed",
+      "steps": [
+        "Create pnpm-workspace.yaml with packages globs: 'packages/*', 'ddx-term-broker', 'ddx-term-mcp', 'ddx-term-web' (explicitly NOT ddx-cli-py / ddx-cli-ts — those are e2e fixtures, leave them out and do not delete them).",
+        "Create root package.json: name 'dudoxx-ai-terminal', private:true, packageManager pnpm, scripts {dev: 'turbo run dev', build: 'turbo run build', test: 'turbo run test', typecheck: 'turbo run typecheck'}, devDependencies turbo + typescript, author 'Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>'.",
+        "Create turbo.json with a pipeline: build (dependsOn ^build), test (dependsOn build), typecheck, dev (cache:false, persistent:true).",
+        "Create a base tsconfig.base.json (strict:true, target ES2022, moduleResolution Bundler) that the packages extend.",
+        "Create docker-compose.dev.yml with two services (ddx-term-broker, ddx-term-web) — MCP is stdio and is NOT a compose service; mirror create-nestjs docker-compose.dev.yml shape.",
+        "Create empty package directories: packages/ddx-term-contract, ddx-term-broker, ddx-term-mcp, ddx-term-web (just the dirs — internals are owned by A2/B/C).",
+        "Run pnpm install to verify the workspace resolves."
+      ],
+      "files": {
+        "create": [
+          "pnpm-workspace.yaml",
+          "package.json",
+          "turbo.json",
+          "tsconfig.base.json",
+          "docker-compose.dev.yml",
+          ".gitignore",
+          "packages/ddx-term-contract/.gitkeep",
+          "ddx-term-broker/.gitkeep",
+          "ddx-term-mcp/.gitkeep",
+          "ddx-term-web/.gitkeep"
+        ],
+        "modify": [],
+        "delete": []
+      },
+      "context": "dudoxx-ai-terminal is its OWN greenfield pnpm workspace (In-Session decision: NOT a module inside dudoxx-ai-hms; HMS services are independent, not one workspace). Mirror the workspace-root discipline of a pnpm monorepo but keep it lean. Package topology is fixed by ARCHITECTURE §4: packages/ddx-term-contract (shared) + three ddx-term-* app packages. The two existing repo-root dirs ddx-cli-py and ddx-cli-ts are interactive e2e fixtures (proven in SPIKE Spike 2) — they MUST stay out of the workspace globs and MUST NOT be deleted. docker-compose covers broker+web only (MCP is launched over stdio by the agent client). No node-pty anywhere (the MCP trap invariant applies repo-wide).",
+      "pitfalls": [
+        "Do NOT add ddx-cli-py/ddx-cli-ts to the workspace globs — they are e2e fixtures, not packages; including them pulls uv/tsx into the install graph.",
+        "Do NOT scaffold any package internals here — A2 owns the contract, B owns broker/mcp, C owns web. Empty dirs + .gitkeep only.",
+        "Never introduce node-pty at the root (repo-wide invariant)."
+      ],
+      "skill_refs": [
+        "typescript-strict"
+      ],
+      "context_files": [
+        "plans/ddx-terminal-bridge/_invariants.md",
+        "plans/ddx-terminal-bridge/ARCHITECTURE.md",
+        "plans/ddx-terminal-bridge/01-workspace-scaffold.md"
+      ],
+      "validation": "pnpm install && pnpm -r exec true && npx turbo run build --dry >/dev/null",
+      "acceptance_criteria": [
+        "WHEN pnpm install runs at the repo root THE SYSTEM SHALL resolve the workspace with zero errors and enumerate exactly the four packages.",
+        "WHEN turbo run build --dry runs THE SYSTEM SHALL list a build pipeline across the four packages without executing."
+      ]
+    },
+    {
+      "id": "A2",
+      "shard": "02-term-contract.md",
+      "subject": "Author @ddx/term-contract — zod/v4 WS frames, 9 MCP tool I/O schemas, TerminalDescriptor/ProcessInfo/SessionDescriptor + enums, multi-target build + schema-lock + CHANGELOG",
+      "category": "contract",
+      "agent": "general-purpose",
+      "depends_on": [
+        "A1"
+      ],
+      "status": "completed",
+      "steps": [
+        "Mirror dudoxx-ai-hms/packages/ddx-sse-contract package.json: name '@ddx/term-contract', exports map (types/import/require), files [dist, src], build = 'pnpm build:esm && pnpm build:cjs && pnpm build:types', peerDependencies.zod ^4, devDeps typescript+vitest+zod, author attribution line.",
+        "Copy the four tsconfig variants (tsconfig.json, .esm.json, .cjs.json, .types.json) from the sse-contract sibling, retargeting paths.",
+        "src/terminal.ts: TerminalId (branded string), PidRef, ProcessInfo {pid, ppid, stat, command}, TerminalDescriptor {terminalId, windowId, title, panePid, fgPid: number|null, cwd, command, createdAt} exactly per ARCHITECTURE §3a.",
+        "src/session.ts: SessionDescriptor, ResizePolicy enum, InputArbitration enum (AGENT_OWN_WINDOW default | FREE_FOR_ALL | HUMAN_LOCK).",
+        "src/ws-frames.ts: a discriminated union on 'type' tagged with terminalId — output | layout-change | window-add | window-close | error (server→client) and input (client→server). Optional fields for v2 extensibility.",
+        "src/mcp-tools.ts: one zod input + one zod output schema per verb (term_create, term_list, term_destroy, term_send, term_read, term_wait_for, term_signal, term_ps, term_panes, term_snapshot); per-terminal inputs have OPTIONAL terminalId; a shared TermError discriminated union keyed on the code enum from MCP-SPEC §4 plus retriable:boolean.",
+        "src/index.ts: re-export all. Add schema-lock.json (hash of the exported schemas) + CHANGELOG.md (v0.1.0 initial) mirroring the sse-contract discipline.",
+        "Write co-located *.spec.ts: a term_send input rejects a payload missing 'text'; a TermError parses each code; TerminalDescriptor round-trips."
+      ],
+      "files": {
+        "create": [
+          "packages/ddx-term-contract/package.json",
+          "packages/ddx-term-contract/tsconfig.json",
+          "packages/ddx-term-contract/tsconfig.esm.json",
+          "packages/ddx-term-contract/tsconfig.cjs.json",
+          "packages/ddx-term-contract/tsconfig.types.json",
+          "packages/ddx-term-contract/schema-lock.json",
+          "packages/ddx-term-contract/CHANGELOG.md",
+          "packages/ddx-term-contract/src/terminal.ts",
+          "packages/ddx-term-contract/src/session.ts",
+          "packages/ddx-term-contract/src/ws-frames.ts",
+          "packages/ddx-term-contract/src/mcp-tools.ts",
+          "packages/ddx-term-contract/src/index.ts",
+          "packages/ddx-term-contract/src/mcp-tools.spec.ts",
+          "packages/ddx-term-contract/src/ws-frames.spec.ts"
+        ],
+        "modify": [],
+        "delete": []
+      },
+      "context": "This is the single source of truth both the broker, the MCP server, and the web client import — types are NEVER duplicated downstream (invariant). Author FIRST (ARCHITECTURE §9 step 2) — it blocks Groups B/C/D. Mirror @ddx/sse-contract v4.1.0 exactly for the versioned-contract discipline (multi-target esm/cjs/types build, exports map, schema-lock.json, CHANGELOG.md, peerDeps zod ^4, vitest). The contract uses zod/v4. WS frames are a discriminated union on 'type', EVERY frame carries terminalId (per-terminal routing). MCP tool schemas back both server and client; the error model is a discriminated union on the MCP-SPEC §4 code enum (SESSION_NOT_FOUND/TERMINAL_NOT_FOUND/TERMINAL_PROTECTED/MAX_TERMINALS/PID_NOT_IN_TERMINAL/COMMAND_DENIED/INVALID_REGEX/TMUX_ERROR) + retriable. TerminalDescriptor keeps terminalId/windowId as identity and panePid/fgPid as snapshots — never conflate.",
+      "pitfalls": [
+        "Use zod/v4 (peerDependency ^4) — do NOT copy ddx-fhir-r4-mcp's inlined zod/v3 pattern.",
+        "EVERY ws-frame variant must carry terminalId or per-terminal WS routing breaks (RESPONSIVENESS §2.8).",
+        "Keep terminalId/windowId (identity) and panePid/fgPid (snapshots) as distinct fields — conflating them in the type is the FM#4 bug at the schema layer.",
+        "No runtime tmux/Nest/React code here — pure types + zod only; no node-pty."
+      ],
+      "skill_refs": [
+        "typescript-strict"
+      ],
+      "context_files": [
+        "plans/ddx-terminal-bridge/_invariants.md",
+        "plans/ddx-terminal-bridge/MCP-SPEC.md",
+        "plans/ddx-terminal-bridge/02-term-contract.md"
+      ],
+      "validation": "pnpm -F @ddx/term-contract build && pnpm -F @ddx/term-contract test && pnpm -F @ddx/term-contract typecheck",
+      "acceptance_criteria": [
+        "WHEN @ddx/term-contract builds THE SYSTEM SHALL emit esm + cjs + types targets with a valid exports map.",
+        "WHEN a term_send input schema validates a payload missing 'text' THE SYSTEM SHALL reject it with a zod error.",
+        "THE SYSTEM SHALL expose every WS frame variant tagged with terminalId and every MCP tool I/O schema from this package only (no downstream duplication)."
+      ]
+    },
+    {
+      "id": "B1",
+      "shard": "03-term-mcp.md",
+      "subject": "ddx-term-mcp foundation: TmuxClient thin execFile wrapper, read-cursor (per-terminalId delta), terminal-map + broker-REST resolver (registry ownership)",
+      "category": "mcp",
+      "agent": "general-purpose",
+      "depends_on": [
+        "A2"
+      ],
+      "status": "completed",
+      "steps": [
+        "Scaffold the package mirroring ddx-fhir-r4-mcp: package.json name '@dudoxx/ddx-term-mcp', type:module, bin ddx-term-mcp -> dist/server.js, deps @modelcontextprotocol/sdk + @ddx/term-contract (workspace:*), dev tsx+typescript, dev='tsx src/server.ts', build='tsc'. NO node-pty.",
+        "src/tmux/tmux.client.ts: a thin execFile('tmux', [...]) wrapper. Every call prefixes -S $DDX_TERM_SOCKET and targets $DDX_TERM_SESSION:<windowId>. Methods map 1:1 to SPIKE 'Exact commands proven': newWindow, listWindows, sendKeysLiteral, sendKey (key-name), capturePaneVisible (no -S), capturePaneScrollback (-S -N), displayMessage('#{pane_pid}' / '#{pane_width}x#{pane_height}'), killWindow. Resolve fgPid via pgrep -P + ps.",
+        "src/read-cursor.ts: Map<terminalId, lastReadToLine> giving DELTA reads; reset on snapshot.",
+        "src/terminal-map.ts: standalone slug<->windowId map (authoritative only when no broker present), persisted alongside the cursor.",
+        "src/registry-resolver.ts: ONE interface with two impls — BrokerRestResolver (GET /terminals, authoritative when a broker is up) and LocalMapResolver (terminal-map.ts). Default to broker-attached; fall back to local in standalone mode.",
+        "Write tmux.client.spec.ts: assert exact argv for each method with execFile mocked (e.g. sendKeysLiteral -> ['-S',sock,'send-keys','-t',target,'-l',text]; visible capture has NO -S; scrollback has -S -N)."
+      ],
+      "files": {
+        "create": [
+          "ddx-term-mcp/package.json",
+          "ddx-term-mcp/tsconfig.json",
+          "ddx-term-mcp/src/tmux/tmux.client.ts",
+          "ddx-term-mcp/src/tmux/tmux.client.spec.ts",
+          "ddx-term-mcp/src/read-cursor.ts",
+          "ddx-term-mcp/src/terminal-map.ts",
+          "ddx-term-mcp/src/registry-resolver.ts"
+        ],
+        "modify": [],
+        "delete": []
+      },
+      "context": "The MCP server is a THIN client over the shared tmux session and MUST own no PTY (no node-pty dep — the webmux trap, discuss.md FM#1, invariant). Mirror ddx-fhir-r4-mcp's stdio MCP shape (server.ts + thin client fhir-client.ts -> here tmux.client.ts) but import all schemas from @ddx/term-contract instead of inlining zod. SPIKE.md 'Exact commands proven' is the known-good argv each method wraps. The registry-ownership gap (shard 06): the broker OWNS terminalId<->windowId; MCP resolves via broker REST GET /terminals when attached, and keeps its own local map only in standalone mode. The read-cursor is MCP-local in both modes (the agent's 'what is new' view).",
+      "pitfalls": [
+        "ZERO node-pty / pty.spawn / raw-shell child_process — only tmux/ps/pgrep/kill. A B2 grep test enforces this (FM#1).",
+        "Visible capture (term_snapshot) MUST omit -S; scrollback (term_read) MUST include -S -N — mixing them breaks the snapshot-vs-delta contract.",
+        "When a broker is present, the broker REST registry wins over the local map — never let the local map diverge silently."
+      ],
+      "skill_refs": [
+        "typescript-strict"
+      ],
+      "context_files": [
+        "plans/ddx-terminal-bridge/_invariants.md",
+        "plans/ddx-terminal-bridge/SPIKE.md",
+        "plans/ddx-terminal-bridge/06-registry-ownership.md"
+      ],
+      "validation": "pnpm -F @dudoxx/ddx-term-mcp build && pnpm -F @dudoxx/ddx-term-mcp test && rg -n 'node-pty|pty\\.spawn' ddx-term-mcp/src && echo FAIL || echo OK",
+      "acceptance_criteria": [
+        "WHEN TmuxClient.sendKeysLiteral is called THE SYSTEM SHALL exec tmux send-keys with -l and the literal text and NO separate key parsing.",
+        "WHEN TmuxClient.capturePaneVisible is called THE SYSTEM SHALL exec capture-pane -p WITHOUT -S, and capturePaneScrollback SHALL include -S -N.",
+        "THE SYSTEM SHALL contain zero references to node-pty / pty.spawn (grep returns empty)."
+      ]
+    },
+    {
+      "id": "B2",
+      "shard": "03-term-mcp.md",
+      "subject": "ddx-term-mcp 9 verbs + 2 helpers + server.ts stdio + allow-list hook + per-verb specs + standalone e2e",
+      "category": "mcp",
+      "agent": "general-purpose",
+      "depends_on": [
+        "B1"
+      ],
+      "status": "completed",
+      "steps": [
+        "Implement tools/ one file per verb (term-create, term-list, term-destroy, term-send, term-read, term-wait-for, term-signal, term-ps, term-panes, term-snapshot) — input/output validated by @ddx/term-contract schemas, wrapping TmuxClient. term_send = sendKeysLiteral(text) THEN sendKey('Enter') as a SEPARATE call (never \\n).",
+        "term_signal: when pid is given, resolve the terminal's process tree (pane_pid + pgrep -P) and VALIDATE pid is in it before kill -> else PID_NOT_IN_TERMINAL; default (no pid) sends the key-name signal (C-c/C-d/C-z) to the foreground.",
+        "term_read: DELTA since the per-terminalId cursor by default; since='all' returns full capped by DDX_TERM_MAX_READ_LINES. term_snapshot: visible grid (no -S) + cols x lines from #{pane_width}x#{pane_height}, optional -e ANSI; resets cursor to tail.",
+        "term_wait_for: poll capturePaneVisible 100ms->500ms backoff until regex match or timeoutMs; INVALID_REGEX on bad pattern.",
+        "src/server.ts: @modelcontextprotocol/sdk stdio server; register the 10 tools; read env (DDX_TERM_SOCKET, DDX_TERM_SESSION, DDX_TERM_DEFAULT, DDX_TERM_ALLOWLIST, DDX_TERM_MAX_READ_LINES, DDX_TERM_MAX_TERMINALS); map thrown TermError -> MCP isError with {code,message,retriable}.",
+        "src/allow-list.ts: optional command allow/deny gate loaded from DDX_TERM_ALLOWLIST; term_send routes through it -> COMMAND_DENIED (Feature 8.2).",
+        "Per-verb *.tool.spec.ts (TmuxClient mocked): assert exact argv incl. term_send uses -l + a SEPARATE Enter; term_destroy refuses the protected default (TERMINAL_PROTECTED); term_signal(foreign pid) -> PID_NOT_IN_TERMINAL; a grep spec asserts zero node-pty.",
+        "Standalone e2e (real tmux on a temp socket): term_create('a')+term_create('b'); term_send('a','echo hi',enter) then term_read('a') returns 'hi' while term_read('b') is empty (isolation); second read returns delta only."
+      ],
+      "files": {
+        "create": [
+          "ddx-term-mcp/src/server.ts",
+          "ddx-term-mcp/src/allow-list.ts",
+          "ddx-term-mcp/src/tools/term-create.tool.ts",
+          "ddx-term-mcp/src/tools/term-list.tool.ts",
+          "ddx-term-mcp/src/tools/term-destroy.tool.ts",
+          "ddx-term-mcp/src/tools/term-send.tool.ts",
+          "ddx-term-mcp/src/tools/term-read.tool.ts",
+          "ddx-term-mcp/src/tools/term-wait-for.tool.ts",
+          "ddx-term-mcp/src/tools/term-signal.tool.ts",
+          "ddx-term-mcp/src/tools/term-ps.tool.ts",
+          "ddx-term-mcp/src/tools/term-panes.tool.ts",
+          "ddx-term-mcp/src/tools/term-snapshot.tool.ts",
+          "ddx-term-mcp/src/tools/term-send.tool.spec.ts",
+          "ddx-term-mcp/src/tools/term-signal.tool.spec.ts",
+          "ddx-term-mcp/src/tools/term-read.tool.spec.ts",
+          "ddx-term-mcp/src/tools/term-destroy.tool.spec.ts",
+          "ddx-term-mcp/src/server.e2e.spec.ts",
+          "ddx-term-mcp/src/no-pty.spec.ts"
+        ],
+        "modify": [
+          "ddx-term-mcp/package.json"
+        ],
+        "delete": []
+      },
+      "context": "The 9 verbs (3 lifecycle + 6 per-terminal) + 2 helpers are the real agent deliverable, fully specified in MCP-SPEC §3/§3a with the exact tmux flags. Send mechanics are LOCKED (In-Session + SPIKE Spike 2): send-keys -l for literal text, a SEPARATE Enter key event, control keys + TUI arrow-nav via KEY NAMES (term_signal), never \\n literal or raw escapes. Capture has TWO modes: snapshot=visible viewport grid (no -S), read=scrollback delta (-S -N + cursor). term_signal earns the pid identifier: it validates pid in the terminal tree before kill (PID_NOT_IN_TERMINAL) — the terminalId != pid proof (FM#4, invariant 5). term_wait_for replaces sleep-poll (the dominant reliability lever). Error model + caps come from MCP-SPEC §4 and the env table §2.",
+      "pitfalls": [
+        "term_send MUST be two tmux calls: send-keys -l <text> then send-keys Enter — a single call with \\n in the literal corrupts commands (invariant 4 / SPIKE).",
+        "term_signal(pid) MUST validate pid is in the terminal's process tree before kill — signalling a foreign pid is the destructive FM#4 bug.",
+        "Default term_read MUST return the delta, not full scrollback — full-every-turn is the FM#3 token blowout.",
+        "Use KEY NAMES (Down/Up/C-c) for TUI nav via term_signal, never literal escape bytes (SPIKE Spike 2 #12)."
+      ],
+      "skill_refs": [
+        "typescript-strict"
+      ],
+      "context_files": [
+        "plans/ddx-terminal-bridge/_invariants.md",
+        "plans/ddx-terminal-bridge/MCP-SPEC.md",
+        "plans/ddx-terminal-bridge/03-term-mcp.md"
+      ],
+      "validation": "pnpm -F @dudoxx/ddx-term-mcp build && pnpm -F @dudoxx/ddx-term-mcp test",
+      "acceptance_criteria": [
+        "WHEN the agent calls term_send THE SYSTEM SHALL inject keystrokes via send-keys -l plus a SEPARATE Enter key into the addressed terminal's PTY (AC #2).",
+        "WHEN term_signal targets a pid outside the terminal's process tree THE SYSTEM SHALL reject it with PID_NOT_IN_TERMINAL (AC #14).",
+        "WHEN term_read is called twice on a 1000-line buffer THE SYSTEM SHALL return only the delta the second time (FM#3).",
+        "WHEN term_snapshot is called THE SYSTEM SHALL return the visible cols x lines grid via capture-pane without -S and report #{pane_width} x #{pane_height} (AC #15).",
+        "WHEN the MCP server is launched over stdio THE SYSTEM SHALL expose the 9 verbs as JSON-RPC tools registrable in a .mcp.json (AC #11)."
+      ]
+    },
+    {
+      "id": "B3",
+      "shard": "04-term-broker.md",
+      "subject": "ddx-term-broker NestJS boot + session module: create shared tmux session (-f /dev/null + default-size), terminal registry, PID resolution, resize/canonical-dims, health",
+      "category": "broker",
+      "agent": "nestjs-backend-specialist",
+      "depends_on": [
+        "A2"
+      ],
+      "status": "completed",
+      "steps": [
+        "Use create-nestjs to scaffold a day-zero NestJS 11 app (main.ts with Helmet, Swagger /docs, ZodValidationPipe, raw-body; platform/common with HttpExceptionFilter, LoggingInterceptor, pino logger, BootSummaryService). Port from the 6xxx dev band (e.g. 6481) or 3400-3490 band; mirror dudoxx-ai-hms/ddx-api.",
+        "Add @ddx/term-contract (workspace:*) dependency; DTOs/validation use its zod schemas.",
+        "modules/session/session.service.ts: create the shared session with `tmux -f /dev/null -S $SOCK new-session -d -s ddx-shared -x 120 -y 30` then `set-option -g default-size 120x30` (NEVER set-window-option -g window-size manual). Own canonical dimensions (resize arbitration).",
+        "session.service.ts: own Map<terminalId, TerminalDescriptor> registry; PID resolution helpers (#{pane_pid} shell + pgrep -P foreground child) returned as SNAPSHOTS, never identity.",
+        "session.controller.ts: health endpoint (session present + socket alive); GET /session describe.",
+        "session.service.spec.ts: assert the create argv uses -f /dev/null and default-size and NEVER window-size manual; assert PID resolution returns distinct panePid/fgPid."
+      ],
+      "files": {
+        "create": [
+          "ddx-term-broker/nest-cli.json",
+          "ddx-term-broker/package.json",
+          "ddx-term-broker/tsconfig.json",
+          "ddx-term-broker/src/main.ts",
+          "ddx-term-broker/src/app.module.ts",
+          "ddx-term-broker/src/modules/session/session.module.ts",
+          "ddx-term-broker/src/modules/session/session.service.ts",
+          "ddx-term-broker/src/modules/session/session.controller.ts",
+          "ddx-term-broker/src/modules/session/session.service.spec.ts",
+          "ddx-term-broker/src/platform/common/"
+        ],
+        "modify": [],
+        "delete": []
+      },
+      "context": "The broker is the shared-state core: it creates and OWNS the one shared tmux session and the canonical terminal registry (terminalId<->windowId + process snapshots) that both the WS gateway and the MCP server resolve against (registry ownership, shard 06). Session creation is the spike-critical step: MUST use `tmux -f /dev/null` (do NOT inherit ~/.tmux.conf — it aborts scripted ops, SPIKE footgun #2) and MUST pin size with `set-option -g default-size 120x30` — using `set-window-option -g window-size manual` + new-window on a detached session KILLS tmux 3.6a (SPIKE footgun #1, PRODUCTION-DAY-1 CRASH). Mirror dudoxx-ai-hms/ddx-api boot (main.ts + platform/common). Use the create-nestjs skill for the skeleton; modules/=domain, platform/=cross-cutting, never mix.",
+      "pitfalls": [
+        "NEVER `set-window-option -g window-size manual` — it + new-window on a detached session kills the tmux 3.6a server (day-1 crash). Use `default-size`.",
+        "MUST create the session with `tmux -f /dev/null` — inheriting the user's ~/.tmux.conf breaks scripted window ops (SPIKE).",
+        "panePid/fgPid/cwd/command are SNAPSHOTS re-read on demand — never store them as terminal identity (FM#4).",
+        "Broker spawns tmux only — never a raw shell, never node-pty."
+      ],
+      "skill_refs": [
+        "create-nestjs",
+        "nestjs-backend",
+        "typescript-strict"
+      ],
+      "context_files": [
+        "plans/ddx-terminal-bridge/_invariants.md",
+        "plans/ddx-terminal-bridge/ARCHITECTURE.md",
+        "plans/ddx-terminal-bridge/04-term-broker.md"
+      ],
+      "validation": "pnpm -F ddx-term-broker build && pnpm -F ddx-term-broker test",
+      "acceptance_criteria": [
+        "WHEN the broker creates the shared session THE SYSTEM SHALL use `tmux -f /dev/null` and `set-option -g default-size 120x30` and SHALL NEVER use `window-size manual`.",
+        "WHEN a client disconnects and reconnects THE SYSTEM SHALL restore the live session with full scrollback (tmux survives disconnect; broker re-attaches) (AC #5).",
+        "WHEN term_ps/term_list resolves a terminal THE SYSTEM SHALL report panePid (shell) and fgPid (foreground child) as live snapshots distinct from the durable terminalId (AC #13)."
+      ]
+    },
+    {
+      "id": "B4",
+      "shard": "04-term-broker.md",
+      "subject": "ddx-term-broker terminal module REST CRUD + control-mode parser/attach + per-/term/:terminalId WS gateway + specs",
+      "category": "broker",
+      "agent": "nestjs-backend-specialist",
+      "depends_on": [
+        "B3"
+      ],
+      "status": "completed",
+      "steps": [
+        "modules/terminal/terminal.service.ts + terminal.controller.ts: REST GET/POST/DELETE /terminals[/:terminalId] + GET /terminals/:id/snapshot. POST allocates a terminalId via new-window and writes the registry (broker is the single writer); DELETE kill-window + clears registry. DTOs validated by @ddx/term-contract zod.",
+        "modules/control-mode/control-mode.parser.ts: parse %output %N <bytes>, %layout-change, %window-add, %window-close, %session-changed into typed frames tagged with terminalId. modules/control-mode/control-mode.attach.ts: spawn `tmux -CC attach`, line-read stdout, feed the parser.",
+        "modules/gateway/term.gateway.ts: @WebSocketGateway routed per /term/:terminalId — broadcast that window's %output frames to its subscribers ONLY (per-terminal routing, RESPONSIVENESS §2.8); ingest client 'input' frames -> resolve terminalId->windowId via SessionService -> send-keys. Coalesce frames ~16ms (flood control). Window 0 = human, agent uses window 1+ (AGENT_OWN_WINDOW).",
+        "control-mode.parser.spec.ts: golden-fixture frames -> typed output. terminal.service.spec.ts: terminalId<->window allocation + PID resolution. term.gateway.spec.ts: one stream fans to N subscribers of the right terminalId only; keystroke ingest calls send-keys with the resolved windowId."
+      ],
+      "files": {
+        "create": [
+          "ddx-term-broker/src/modules/terminal/terminal.module.ts",
+          "ddx-term-broker/src/modules/terminal/terminal.service.ts",
+          "ddx-term-broker/src/modules/terminal/terminal.controller.ts",
+          "ddx-term-broker/src/modules/terminal/terminal.service.spec.ts",
+          "ddx-term-broker/src/modules/control-mode/control-mode.parser.ts",
+          "ddx-term-broker/src/modules/control-mode/control-mode.attach.ts",
+          "ddx-term-broker/src/modules/control-mode/control-mode.parser.spec.ts",
+          "ddx-term-broker/src/modules/gateway/term.gateway.ts",
+          "ddx-term-broker/src/modules/gateway/term.gateway.spec.ts"
+        ],
+        "modify": [
+          "ddx-term-broker/src/app.module.ts"
+        ],
+        "delete": []
+      },
+      "context": "control mode (`tmux -CC`) is the keystone (ARCHITECTURE §3): tmux emits a line-based machine-parseable protocol (%output/%layout-change/...) instead of raw escapes, so the broker forwards STRUCTURED pane updates -> faithful TUI rendering (AC #7) AND a native iTerm2 client can co-attach for free. The WS path is per-terminal (/term/:terminalId) — the broker resolves terminalId->windowId via the SessionService registry (broker-owned, shard 06) and forwards only that window's frames. The REST CRUD is the broker mirror of MCP term_create/term_list/term_destroy/term_snapshot (reciprocal pairs). Frames are coalesced to cap render frame-rate under output flood (RESPONSIVENESS §3).",
+      "pitfalls": [
+        "WS routing MUST be per-terminalId — broadcasting one terminal's %output to all clients cross-pollutes latency and leaks output across terminals.",
+        "terminal.controller is the reciprocal of MCP verbs AND the web tab caller — keep the registry the single broker-owned writer so MCP and web never diverge (shard 06).",
+        "The control-mode parser must handle %output byte payloads incrementally — do not buffer whole screens (RESPONSIVENESS §2.2).",
+        "Do NOT duplicate @ddx/term-contract frame/DTO types locally."
+      ],
+      "skill_refs": [
+        "nestjs-backend",
+        "create-nestjs",
+        "typescript-strict"
+      ],
+      "context_files": [
+        "plans/ddx-terminal-bridge/_invariants.md",
+        "plans/ddx-terminal-bridge/ARCHITECTURE.md",
+        "plans/ddx-terminal-bridge/04-term-broker.md"
+      ],
+      "validation": "pnpm -F ddx-term-broker build && pnpm -F ddx-term-broker test",
+      "acceptance_criteria": [
+        "WHEN a TUI program runs (vim/htop/less) THE SYSTEM SHALL render it via control-mode %output/%layout-change parsing, not a flat screen-scrape (AC #7).",
+        "WHEN a command is sent to terminal A THE SYSTEM SHALL NOT broadcast it to subscribers of terminal B (per-terminal isolation, AC #12).",
+        "WHEN POST /terminals is called THE SYSTEM SHALL allocate a new tmux window with a stable terminalId and write it to the broker-owned registry; DELETE SHALL free it (AC #12).",
+        "WHEN a human types in the web terminal THE SYSTEM SHALL execute it in the shared session and reflect output (<150ms p95 localhost, AC #1)."
+      ]
+    },
+    {
+      "id": "C1",
+      "shard": "05-term-web.md",
+      "subject": "ddx-term-web Next.js 16 single terminal page: xterm.js client (webgl/fit), terminal tabs by terminalId, snapshot fetch, Dudoxx-token chrome, spec",
+      "category": "web",
+      "agent": "stack-specialist",
+      "depends_on": [
+        "B4"
+      ],
+      "status": "completed",
+      "steps": [
+        "Use create-nextjs to scaffold a day-zero Next.js 16 app mirroring dudoxx-ai-hms/ddx-web shell. Add @ddx/term-contract (workspace:*).",
+        "src/lib/term/xterm-client.ts: connect WS /term/:terminalId, apply server frames (output/layout-change) to an xterm.js Terminal with webgl + fit addons, send onData(key) as 'input' frames. Import frame types from @ddx/term-contract (NO local frame shapes).",
+        "src/app/[locale]/terminal/page.tsx: a SINGLE terminal page with a tab bar — list terminals from GET /terminals; clicking a tab = WS resubscribe + one GET /terminals/:id/snapshot to paint the current frame (not a full reconnect). Per-tab status (command/pid) from the term_list mirror.",
+        "Chrome uses semantic OKLCH tokens (bg-background/text-foreground); any user-facing string via t() in en/de/fr lockstep. Do NOT force the full entity-route/header-footer entity pattern (CLI UI scope, In-Session).",
+        "src/lib/term/xterm-client.spec.ts: a server output frame writes to the terminal; onData emits an input frame; switching tab triggers a resubscribe + snapshot fetch."
+      ],
+      "files": {
+        "create": [
+          "ddx-term-web/package.json",
+          "ddx-term-web/next.config.ts",
+          "ddx-term-web/tsconfig.json",
+          "ddx-term-web/src/app/[locale]/terminal/page.tsx",
+          "ddx-term-web/src/lib/term/xterm-client.ts",
+          "ddx-term-web/src/lib/term/xterm-client.spec.ts",
+          "ddx-term-web/messages/en.json",
+          "ddx-term-web/messages/de.json",
+          "ddx-term-web/messages/fr.json"
+        ],
+        "modify": [],
+        "delete": []
+      },
+      "context": "The human render leg (ARCHITECTURE §5 Flow A): a Next.js 16 page with xterm.js, terminal TABS to switch among the N terminals by terminalId, and snapshot fetch. Each xterm instance subscribes to ONE /term/:terminalId WS stream (per-terminal routing) and consumes the broker's control-mode frames; keystrokes flow back as input frames. IMPORTANT scope (In-Session): this is a CLI/terminal UI — the Dudoxx Design System entity-route + header/footer machinery is mostly N/A; build a single terminal page, use semantic tokens for chrome but do NOT impose /{entity}/view/[id] routing. Mirror dudoxx-ai-hms/ddx-web for the app shell only. Frame and tool types come from @ddx/term-contract — never redefine them here.",
+      "pitfalls": [
+        "Import WS frame types from @ddx/term-contract — defining frame shapes locally re-duplicates the contract (invariant).",
+        "Tab switch is a WS resubscribe + one snapshot fetch, NOT a full reconnect (RESPONSIVENESS §2.8) — a full reconnect blows the <200ms tab-switch budget.",
+        "i18n/Tailwind drift (Cardinal #23): every chrome string via t() with en/de/fr added in lockstep; semantic OKLCH tokens only — no raw palette utilities (bg-zinc-700 etc.).",
+        "Do NOT fetch the broker directly from a client component without the route-handler/proxy pattern where the stack requires it."
+      ],
+      "skill_refs": [
+        "create-nextjs",
+        "frontend-stack",
+        "typescript-strict"
+      ],
+      "context_files": [
+        "plans/ddx-terminal-bridge/_invariants.md",
+        "plans/ddx-terminal-bridge/05-term-web.md",
+        "plans/ddx-terminal-bridge/RESPONSIVENESS.md"
+      ],
+      "validation": "pnpm -F ddx-term-web build && pnpm -F ddx-term-web test && pnpm -F ddx-term-web exec tsc --noEmit",
+      "acceptance_criteria": [
+        "WHEN a human switches terminal tabs THE SYSTEM SHALL resubscribe the WS and paint the current frame via a snapshot fetch within the tab-switch budget (AC #12/#15, RESPONSIVENESS §2.8).",
+        "WHEN the broker emits a control-mode output frame for the subscribed terminalId THE SYSTEM SHALL write it to that tab's xterm instance (AC #7).",
+        "WHEN the human types THE SYSTEM SHALL send an input frame to the shared session and render the echoed output (AC #1)."
+      ]
+    },
+    {
+      "id": "D1",
+      "shard": "07-e2e-docs.md",
+      "subject": "E2E suite: 3-way attach parity, multi-terminal isolation, terminalId!=pid signal-reject, statefulness, resize invariant, interactive reply incl. arrow-key TUI, delta read, latency report",
+      "category": "test",
+      "agent": "test-writer",
+      "depends_on": [
+        "B4",
+        "C1"
+      ],
+      "status": "completed",
+      "steps": [
+        "3-way attach parity (AC #2/#3, FM#1): on a real throwaway tmux temp socket, term_send a command, assert a second capture-pane client shows the same bytes.",
+        "Multi-terminal isolation (AC #12): term_create('a')+('b'); send to a; assert term_read('b') empty.",
+        "terminalId != pid signal-reject (AC #14, FM#4): term_signal(pid) with a foreign pid -> PID_NOT_IN_TERMINAL; signalling the real foreground after a command change still works.",
+        "Statefulness (AC #4): cd /tmp then pwd across separate calls preserves cwd; open python3 REPL then eval persists.",
+        "Resize invariant (AC #8, FM#2): a headless attach does NOT change #{window_width}.",
+        "Interactive reply incl. arrow-key TUI (AC #6/#7): drive ddx-cli-py Rich prompts (-l + Enter) and ddx-cli-ts clack select (Down key-name then Enter), using term_wait_for before each answer so keystrokes don't race; assert the DONE markers.",
+        "Delta read (FM#3): a 1000-line output read twice returns the delta the second time.",
+        "Latency report (AC #1, RESPONSIVENESS §4): timestamp keystroke send -> WS frame receipt over N keystrokes; emit p50/p95; fail if p95 > hard ceiling. Each test cleans up its temp tmux socket/session."
+      ],
+      "files": {
+        "create": [
+          "e2e/attach-parity.e2e.spec.ts",
+          "e2e/multi-terminal-isolation.e2e.spec.ts",
+          "e2e/terminalid-vs-pid.e2e.spec.ts",
+          "e2e/statefulness.e2e.spec.ts",
+          "e2e/resize-invariant.e2e.spec.ts",
+          "e2e/interactive-programs.e2e.spec.ts",
+          "e2e/delta-read.e2e.spec.ts",
+          "e2e/latency.e2e.spec.ts",
+          "e2e/helpers/tmux-sandbox.ts"
+        ],
+        "modify": [],
+        "delete": []
+      },
+      "context": "Cross-package proof the shared-state thesis holds. Reuse the existing repo-root fixtures ddx-cli-py (uv + rich) and ddx-cli-ts (pnpm + clack) as interactive targets — they were scaffolded and proven in SPIKE Spike 2 precisely to be e2e fixtures (#10 Rich prompts, #12 arrow-key clack select). Every test maps to an AC or Failure Mode from discuss.md. Tests run against a real throwaway tmux on a TEMP socket (never the user's tmux server) and must clean up. The interactive test must call term_wait_for before each keystroke (SPIKE: keystrokes race the program otherwise). The latency test is the AC #1 verification harness (RESPONSIVENESS §4) and gates CI on the p95 hard ceiling.",
+      "pitfalls": [
+        "Tests MUST use a temp socket and kill their session in teardown — leaking into the user's tmux server is destructive.",
+        "Interactive tests MUST term_wait_for the prompt marker before sending the next key, or keystrokes race ahead (SPIKE Spike 2).",
+        "Do NOT modify product code to make a test pass — a failing test is a real defect; report it (Cardinal #5).",
+        "Arrow-key TUI nav uses KEY NAMES (Down/Up) via the signal/key path, not literal escape bytes."
+      ],
+      "skill_refs": [
+        "typescript-strict"
+      ],
+      "context_files": [
+        "plans/ddx-terminal-bridge/_invariants.md",
+        "plans/ddx-terminal-bridge/SPIKE.md",
+        "plans/ddx-terminal-bridge/07-e2e-docs.md"
+      ],
+      "validation": "pnpm -r test",
+      "acceptance_criteria": [
+        "WHEN the agent term_send runs THE SYSTEM SHALL show the same bytes in a second capture-pane client (3-way attach parity, AC #2/#3).",
+        "WHEN a command is sent to terminal a THE SYSTEM SHALL leave terminal b's read empty (multi-terminal isolation, AC #12).",
+        "WHEN cd then pwd run across separate calls THE SYSTEM SHALL preserve cwd (statefulness, AC #4).",
+        "WHEN a headless attach occurs THE SYSTEM SHALL NOT change the window width (resize invariant, AC #8).",
+        "WHEN driving ddx-cli-ts's clack select with Down then Enter THE SYSTEM SHALL confirm the moved selection (interactive arrow-key TUI, AC #6/#7).",
+        "WHEN the latency e2e runs THE SYSTEM SHALL emit a p50/p95 report and fail if p95 exceeds the hard ceiling (AC #1)."
+      ]
+    },
+    {
+      "id": "D2",
+      "shard": "07-e2e-docs.md",
+      "subject": "Per-package CLAUDE.md (DOX) for the 4 packages + root README (one-command bring-up + native-attach recipe) + .mcp.json registration snippet",
+      "category": "docs",
+      "agent": "general-purpose",
+      "depends_on": [
+        "B2",
+        "B4",
+        "C1"
+      ],
+      "status": "completed",
+      "steps": [
+        "Write CLAUDE.md (DOX: Purpose / Ownership / Local Contracts / Verification) for packages/ddx-term-contract, ddx-term-broker, ddx-term-mcp, ddx-term-web.",
+        "ddx-term-mcp/CLAUDE.md MUST carry the load-bearing invariant 'MUST NEVER hold a PTY (no node-pty); shells out to tmux only' and the send/capture mechanics summary.",
+        "Root README.md: one-command bring-up (pnpm dev via turbo: broker + web; MCP via stdio), native-attach recipe (`tmux -CC attach -t ddx-shared` from iTerm2/WezTerm), and the architecture one-liner.",
+        "Add the .mcp.json registration snippet from MCP-SPEC §1 (command node, args dist/server.js, env DDX_TERM_SOCKET/DDX_TERM_SESSION/DDX_TERM_DEFAULT) to README + a standalone .mcp.json.example.",
+        "All docs carry attribution: Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>."
+      ],
+      "files": {
+        "create": [
+          "packages/ddx-term-contract/CLAUDE.md",
+          "ddx-term-broker/CLAUDE.md",
+          "ddx-term-mcp/CLAUDE.md",
+          "ddx-term-web/CLAUDE.md",
+          "README.md",
+          ".mcp.json.example"
+        ],
+        "modify": [],
+        "delete": []
+      },
+      "context": "DOX docs each package owes (per-subdir CLAUDE.md as the local contract) plus the developer-experience deliverables (Feature 10.x): one-command bring-up, the native-attach recipe, and the .mcp.json snippet that registers ddx-term-mcp in a Claude Code / Claude Desktop config (AC #11, MCP-SPEC §1). The ddx-term-mcp CLAUDE.md is the most load-bearing: it must encode the never-own-a-PTY invariant so any future editor of that package inherits the constraint. Keep docs operational and concise (DOX anti-diary).",
+      "pitfalls": [
+        "ddx-term-mcp/CLAUDE.md MUST state the no-PTY/tmux-only invariant — omitting it loses the single most important constraint of the package.",
+        "Keep docs as operational contracts, not diary entries (DOX style).",
+        "Attribution line required on every doc."
+      ],
+      "skill_refs": [
+        "typescript-strict"
+      ],
+      "context_files": [
+        "plans/ddx-terminal-bridge/_invariants.md",
+        "plans/ddx-terminal-bridge/MCP-SPEC.md",
+        "plans/ddx-terminal-bridge/07-e2e-docs.md"
+      ],
+      "validation": "test -f README.md && test -f ddx-term-mcp/CLAUDE.md && rg -q 'never own|no node-pty|tmux only|NEVER.*PTY' ddx-term-mcp/CLAUDE.md && rg -q 'mcpServers' .mcp.json.example",
+      "acceptance_criteria": [
+        "THE SYSTEM SHALL provide a .mcp.json snippet registering ddx-term-mcp over stdio with the documented env (AC #11).",
+        "THE SYSTEM SHALL document one-command bring-up and the native `tmux -CC attach` recipe in the README.",
+        "THE ddx-term-mcp CLAUDE.md SHALL encode the MUST-NEVER-own-a-PTY invariant."
+      ]
+    }
+  ]
+}

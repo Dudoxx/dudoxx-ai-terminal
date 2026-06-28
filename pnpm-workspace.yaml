@@ -1,0 +1,10 @@
+# Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>
+# dudoxx-ai-terminal — shared multi-terminal + MCP workspace.
+# NOTE: ddx-cli-py / ddx-cli-ts are e2e interactive-target fixtures, NOT workspace
+# packages — they are intentionally excluded from these globs (and never deleted).
+packages:
+  - 'packages/*'
+  - 'ddx-term-broker'
+  - 'ddx-term-mcp'
+  - 'ddx-term-web'
+  - 'e2e'

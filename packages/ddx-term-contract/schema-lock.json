@@ -1,0 +1,427 @@
+{
+  "package": "@ddx/term-contract",
+  "version": "0.1.0",
+  "generated": "2026-06-28",
+  "note": "Manifest of exported zod schemas. Regenerate after any schema change; a diff here signals a contract change requiring a version bump + CHANGELOG entry.",
+  "schemaCount": 42,
+  "schemas": [
+    {
+      "name": "ClientFrameSchema",
+      "typeName": "union",
+      "optionCount": 1,
+      "discriminator": "type",
+      "hash": "5b736640e12eac86"
+    },
+    {
+      "name": "ErrorFrameSchema",
+      "typeName": "object",
+      "keys": [
+        "code",
+        "message",
+        "terminalId",
+        "type"
+      ],
+      "hash": "bcb144c8eca8ee15"
+    },
+    {
+      "name": "InputArbitrationSchema",
+      "typeName": "enum",
+      "enumValues": [
+        "AGENT_OWN_WINDOW",
+        "FREE_FOR_ALL",
+        "HUMAN_LOCK"
+      ],
+      "hash": "2b76bfa72fb5f41a"
+    },
+    {
+      "name": "InputFrameSchema",
+      "typeName": "object",
+      "keys": [
+        "data",
+        "enter",
+        "terminalId",
+        "type"
+      ],
+      "hash": "1daf895de53b0fa8"
+    },
+    {
+      "name": "LayoutChangeFrameSchema",
+      "typeName": "object",
+      "keys": [
+        "cols",
+        "layout",
+        "rows",
+        "terminalId",
+        "type"
+      ],
+      "hash": "f0cc22003c19a7a4"
+    },
+    {
+      "name": "OutputFrameSchema",
+      "typeName": "object",
+      "keys": [
+        "data",
+        "terminalId",
+        "type",
+        "withAnsi"
+      ],
+      "hash": "c3cb956fc10febd0"
+    },
+    {
+      "name": "PidRefSchema",
+      "typeName": "object",
+      "keys": [
+        "pid"
+      ],
+      "hash": "942cb45903bd9858"
+    },
+    {
+      "name": "ProcessInfoSchema",
+      "typeName": "object",
+      "keys": [
+        "command",
+        "pid",
+        "ppid",
+        "stat"
+      ],
+      "hash": "e7056d1fa2583f07"
+    },
+    {
+      "name": "ProcessSnapshotFrameSchema",
+      "typeName": "object",
+      "keys": [
+        "fgPid",
+        "panePid",
+        "processes",
+        "terminalId",
+        "type"
+      ],
+      "hash": "500a1d558564f1d6"
+    },
+    {
+      "name": "ResizePolicySchema",
+      "typeName": "enum",
+      "enumValues": [
+        "AGGRESSIVE_RESIZE_OFF",
+        "PINNED_DEFAULT_SIZE",
+        "SMALLEST_CLIENT"
+      ],
+      "hash": "3d846aa7313fb27e"
+    },
+    {
+      "name": "ServerFrameSchema",
+      "typeName": "union",
+      "optionCount": 6,
+      "discriminator": "type",
+      "hash": "754682e5eb51b66c"
+    },
+    {
+      "name": "SessionDescriptorSchema",
+      "typeName": "object",
+      "keys": [
+        "cols",
+        "createdAt",
+        "defaultTerminalId",
+        "inputArbitration",
+        "resizePolicy",
+        "rows",
+        "sessionId",
+        "socketPath"
+      ],
+      "hash": "d2989e7f9f9521a2"
+    },
+    {
+      "name": "TermCreateInputSchema",
+      "typeName": "object",
+      "keys": [
+        "cwd",
+        "name"
+      ],
+      "hash": "d2239045699e067b"
+    },
+    {
+      "name": "TermCreateOutputSchema",
+      "typeName": "object",
+      "keys": [
+        "created",
+        "cwd",
+        "panePid",
+        "terminalId",
+        "windowId"
+      ],
+      "hash": "ab426bf8024ea872"
+    },
+    {
+      "name": "TermDestroyInputSchema",
+      "typeName": "object",
+      "keys": [
+        "terminalId"
+      ],
+      "hash": "b70335890e9812e0"
+    },
+    {
+      "name": "TermDestroyOutputSchema",
+      "typeName": "object",
+      "keys": [
+        "ok",
+        "terminalId"
+      ],
+      "hash": "bc2a65cec3024d98"
+    },
+    {
+      "name": "TermErrorCodeSchema",
+      "typeName": "enum",
+      "enumValues": [
+        "COMMAND_DENIED",
+        "INVALID_REGEX",
+        "MAX_TERMINALS",
+        "PID_NOT_IN_TERMINAL",
+        "SESSION_NOT_FOUND",
+        "TERMINAL_NOT_FOUND",
+        "TERMINAL_PROTECTED",
+        "TMUX_ERROR"
+      ],
+      "hash": "59873ced62bcda80"
+    },
+    {
+      "name": "TermErrorSchema",
+      "typeName": "union",
+      "optionCount": 8,
+      "discriminator": "code",
+      "hash": "b7f4909fced510ef"
+    },
+    {
+      "name": "TermFrameSchema",
+      "typeName": "union",
+      "optionCount": 7,
+      "discriminator": "type",
+      "hash": "a9c5a0df00ae2bec"
+    },
+    {
+      "name": "TermListEntrySchema",
+      "typeName": "object",
+      "keys": [
+        "active",
+        "command",
+        "cwd",
+        "fgPid",
+        "panePid",
+        "terminalId",
+        "title",
+        "windowId"
+      ],
+      "hash": "cbd980062a601fe9"
+    },
+    {
+      "name": "TermListInputSchema",
+      "typeName": "object",
+      "keys": [],
+      "hash": "99a2a6a3ac5818c6"
+    },
+    {
+      "name": "TermListOutputSchema",
+      "typeName": "object",
+      "keys": [
+        "terminals"
+      ],
+      "hash": "8eeae3d9a2ae87e1"
+    },
+    {
+      "name": "TermPaneSchema",
+      "typeName": "object",
+      "keys": [
+        "command",
+        "height",
+        "id",
+        "width"
+      ],
+      "hash": "c37886c1a8ea7ff4"
+    },
+    {
+      "name": "TermPanesInputSchema",
+      "typeName": "object",
+      "keys": [
+        "terminalId"
+      ],
+      "hash": "b70335890e9812e0"
+    },
+    {
+      "name": "TermPanesOutputSchema",
+      "typeName": "object",
+      "keys": [
+        "panes",
+        "terminalId"
+      ],
+      "hash": "e15ff9ac1851d527"
+    },
+    {
+      "name": "TermPsInputSchema",
+      "typeName": "object",
+      "keys": [
+        "terminalId"
+      ],
+      "hash": "b70335890e9812e0"
+    },
+    {
+      "name": "TermPsOutputSchema",
+      "typeName": "object",
+      "keys": [
+        "fgPid",
+        "panePid",
+        "processes",
+        "terminalId"
+      ],
+      "hash": "12874e71932facfd"
+    },
+    {
+      "name": "TermReadInputSchema",
+      "typeName": "object",
+      "keys": [
+        "lines",
+        "since",
+        "terminalId"
+      ],
+      "hash": "8855001820c133ea"
+    },
+    {
+      "name": "TermReadOutputSchema",
+      "typeName": "object",
+      "keys": [
+        "fromLine",
+        "terminalId",
+        "text",
+        "toLine",
+        "truncated"
+      ],
+      "hash": "85e42bd89a11c40d"
+    },
+    {
+      "name": "TermSendInputSchema",
+      "typeName": "object",
+      "keys": [
+        "enter",
+        "terminalId",
+        "text"
+      ],
+      "hash": "b6e01b11a09bfc18"
+    },
+    {
+      "name": "TermSendOutputSchema",
+      "typeName": "object",
+      "keys": [
+        "ok",
+        "terminalId"
+      ],
+      "hash": "bc2a65cec3024d98"
+    },
+    {
+      "name": "TermSignalInputSchema",
+      "typeName": "object",
+      "keys": [
+        "pid",
+        "signal",
+        "terminalId"
+      ],
+      "hash": "3c39588900f152c4"
+    },
+    {
+      "name": "TermSignalOutputSchema",
+      "typeName": "object",
+      "keys": [
+        "ok",
+        "targetedPid",
+        "terminalId"
+      ],
+      "hash": "4e72dff77b8c4857"
+    },
+    {
+      "name": "TermSnapshotInputSchema",
+      "typeName": "object",
+      "keys": [
+        "lines",
+        "terminalId"
+      ],
+      "hash": "0568aef71717cf11"
+    },
+    {
+      "name": "TermSnapshotOutputSchema",
+      "typeName": "object",
+      "keys": [
+        "cols",
+        "grid",
+        "lines",
+        "terminalId",
+        "withAnsi"
+      ],
+      "hash": "0d374ca7287c0234"
+    },
+    {
+      "name": "TermWaitForInputSchema",
+      "typeName": "object",
+      "keys": [
+        "pattern",
+        "terminalId",
+        "timeoutMs"
+      ],
+      "hash": "a3930e4601d4f2b7"
+    },
+    {
+      "name": "TermWaitForOutputSchema",
+      "typeName": "object",
+      "keys": [
+        "elapsedMs",
+        "line",
+        "matched",
+        "reason",
+        "terminalId"
+      ],
+      "hash": "0c975a46382033ac"
+    },
+    {
+      "name": "TerminalDescriptorSchema",
+      "typeName": "object",
+      "keys": [
+        "command",
+        "createdAt",
+        "cwd",
+        "fgPid",
+        "panePid",
+        "terminalId",
+        "title",
+        "windowId"
+      ],
+      "hash": "95ff0ce14dd22c98"
+    },
+    {
+      "name": "TerminalIdSchema",
+      "typeName": "string",
+      "hash": "eb125dc4267cdfaa"
+    },
+    {
+      "name": "WindowAddFrameSchema",
+      "typeName": "object",
+      "keys": [
+        "terminalId",
+        "title",
+        "type",
+        "windowId"
+      ],
+      "hash": "9d36d6a52f1b2b79"
+    },
+    {
+      "name": "WindowCloseFrameSchema",
+      "typeName": "object",
+      "keys": [
+        "terminalId",
+        "type",
+        "windowId"
+      ],
+      "hash": "2e8e0cc91cfbe033"
+    },
+    {
+      "name": "WindowIdSchema",
+      "typeName": "string",
+      "hash": "eb125dc4267cdfaa"
+    }
+  ]
+}
