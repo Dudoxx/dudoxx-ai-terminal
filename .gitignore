@@ -45,3 +45,13 @@ __pycache__/
 
 # Claude Code inline-paste bloat snapshots (machine-local, triage scratch)
 .claude-bloat-snapshots/
+
+# Claude Code machine-specific environment (not tracked)
+context/ENVIRONMENT.md
+
+# Claude Code ephemeral runtime artifacts (machine-local)
+.claude/logs/
+.claude/agent-memory/
+.claude/metrics/
+.claude/.project-type.env
+.claude/settings.local.json

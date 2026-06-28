@@ -83,12 +83,16 @@ claude mcp add ddx-term --scope user \
 
 Verify with `claude mcp list` (look for `ddx-term … ✔ Connected`).
 
-> **`npx -y @dudoxx/ddx-term-mcp` is NOT available yet.** Both this package and
-> `@ddx/term-contract` are `"private": true` and the contract is a `workspace:*`
-> dependency — neither is published to a registry, so the `npx` form cannot
-> resolve. To enable it later: drop `private`, replace the `workspace:*` contract
-> dep with a published semver range (or bundle the contract into `dist/`), and
-> `npm publish` both. Until then, register by absolute path as above.
+> **Publishing is wired — `@dudoxx/ddx-term-mcp` ships as a self-contained npm
+> package.** Its publish bundle (`build:bundle`, tsup) inlines `@ddx/term-contract`
+> from source into a single `dist/server.js` (`noExternal: ['@ddx/term-contract']`),
+> keeping only `zod` + `@modelcontextprotocol/sdk` as external runtime deps. That
+> bundle is wired as `prepublishOnly`, so the published tarball carries **no
+> `workspace:*` reference** — the contract stays `"private": true` and is never
+> published separately (by design; it lives in the changeset `ignore[]`). Once a
+> version is released to the registry (see **Release & versioning** below), the
+> `npx -y @dudoxx/ddx-term-mcp` form resolves. Until the first registry release,
+> register by absolute path as above.
 
 The MCP server is a **thin tmux client — it never owns a PTY** (no `node-pty`); it
 shells out to tmux against the same session the broker and the human are attached
@@ -114,6 +118,37 @@ pnpm typecheck      # turbo run typecheck across all packages
 pnpm lint
 pnpm test           # turbo run test (unit + e2e; e2e spins throwaway tmux on a temp socket)
 ```
+
+## Release & versioning (Changesets → npm)
+
+Only **`@dudoxx/ddx-term-mcp`** publishes to public npm; broker, web, and the
+contract are `"private": true` and listed in `.changeset/config.json` `ignore[]`.
+
+```sh
+pnpm changeset      # 1. describe the change + pick a bump (patch/minor/major)
+git commit && push  # 2. open a PR that includes the .changeset/*.md
+```
+
+On merge to `main`, `.github/workflows/release.yml` runs Changesets' action:
+
+1. It opens (or updates) a **"Version Packages" PR** that bumps `package.json`,
+   writes `CHANGELOG.md`, and consumes the changeset files.
+2. Merging **that** PR triggers `pnpm release` → `build:bundle` (tsup, inlines the
+   contract) → `changeset publish` → `npm publish` of any package whose version changed.
+
+The publish authenticates via the repo secret **`NPM_TOKEN`** (an npm automation
+token with publish rights to the `@dudoxx` scope) and emits provenance
+(`NPM_CONFIG_PROVENANCE=true`). After the first release lands, the
+`npx -y @dudoxx/ddx-term-mcp` registration form resolves.
+
+> Verify a tarball before publishing: `cd ddx-term-mcp && pnpm build:bundle &&
+> npm pack --dry-run` — it must list `dist/server.js` (self-contained, no
+> `workspace:*`), `package.json`, `README.md`, `INSTALLATION.md`, `LICENSE`, and
+> the two `assets/*.png`.
+
+For the full release walkthrough, bump-type guidance, and CI details see
+[`CLAUDE_PUBLISHING.md`](./CLAUDE_PUBLISHING.md) and
+[`ddx-documentation/05-publishing/release-flow.md`](./ddx-documentation/05-publishing/release-flow.md).
 
 ---
 Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>
