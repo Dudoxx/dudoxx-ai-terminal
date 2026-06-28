@@ -16,7 +16,11 @@ WebSocket. Default port **6481** (`DDX_TERM_BROKER_PORT`), host `127.0.0.1`
 - `src/modules/terminal` — REST CRUD (`GET /api/v1/terminals`,
   `…/:id/snapshot`, …) — the human-side mirror of the MCP `term_*` verbs.
 - `src/modules/control-mode` — `tmux -CC attach` spawn loop + line parser.
-- `src/modules/gateway` — `@WebSocketGateway({ path: '/term' })`; client connects
+- `src/modules/gateway` — owns a raw `ws.Server({ noServer: true })` attached to the
+  Nest HTTP `upgrade` event via `TermGateway.attachTo()` (called from `main.ts` after
+  `listen()`). NOT `@WebSocketGateway` / `WsAdapter`: `@nestjs/platform-ws` routes
+  upgrades by EXACT pathname match, so it can never deliver `/term/<terminalId>` —
+  it destroys the socket ("socket hang up") before `handleConnection`. Client connects
   to `/term/<terminalId>`, receives only that terminal's frames.
 
 ## Local Contracts (tmux footguns — load-bearing)

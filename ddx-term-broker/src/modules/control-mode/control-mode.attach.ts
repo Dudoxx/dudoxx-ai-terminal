@@ -15,14 +15,32 @@
  * Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>
  */
 
+import { existsSync } from 'node:fs';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { spawn, type ChildProcess } from 'child_process';
-import { parseControlModeLine, type WindowIdResolver } from './control-mode.parser';
+import * as pty from 'node-pty';
+import { parseControlModeLine, type FrameResolvers } from './control-mode.parser';
 import type { ServerFrame, WindowId, TerminalId } from '@ddx/term-contract';
 
 const SESSION_NAME = process.env['DDX_TERM_SESSION'] ?? 'ddx-shared';
 const SOCKET_PATH = process.env['DDX_TERM_SOCKET'] ?? '/tmp/ddx-term.sock';
 const RECONNECT_DELAY_MS = 2000;
+
+/**
+ * Resolve the tmux binary to an ABSOLUTE path. node-pty's posix_spawnp does not
+ * reliably honour PATH (it failed with `posix_spawnp failed` when given bare
+ * 'tmux'), so we probe the common install locations + $DDX_TERM_TMUX_BIN.
+ */
+function resolveTmuxBin(): string {
+  const candidates = [
+    process.env['DDX_TERM_TMUX_BIN'],
+    '/opt/homebrew/bin/tmux',
+    '/usr/local/bin/tmux',
+    '/usr/bin/tmux',
+  ].filter((p): p is string => typeof p === 'string' && p.length > 0);
+  return candidates.find((p) => existsSync(p)) ?? 'tmux';
+}
+
+const TMUX_BIN = resolveTmuxBin();
 
 export type FrameHandler = (frame: ServerFrame) => void;
 
@@ -30,23 +48,23 @@ export type FrameHandler = (frame: ServerFrame) => void;
 export class ControlModeAttach implements OnModuleDestroy {
   private readonly logger = new Logger(ControlModeAttach.name);
 
-  private proc: ChildProcess | null = null;
+  private proc: pty.IPty | null = null;
   private handler: FrameHandler | null = null;
-  private resolver: WindowIdResolver | null = null;
+  private resolvers: FrameResolvers | null = null;
   private stopped = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Start the control-mode attach loop.
-   * @param resolver  maps tmux windowId → terminalId (from SessionService registry)
-   * @param handler   called for every typed ServerFrame produced by the parser
+   * @param resolvers  pane + window → terminalId resolvers (SessionService registry)
+   * @param handler    called for every typed ServerFrame produced by the parser
    */
-  start(resolver: WindowIdResolver, handler: FrameHandler): void {
+  start(resolvers: FrameResolvers, handler: FrameHandler): void {
     if (this.proc) {
       this.logger.warn('ControlModeAttach already running — ignoring duplicate start()');
       return;
     }
-    this.resolver = resolver;
+    this.resolvers = resolvers;
     this.handler = handler;
     this.stopped = false;
     this.spawn();
@@ -60,7 +78,7 @@ export class ControlModeAttach implements OnModuleDestroy {
       this.reconnectTimer = null;
     }
     if (this.proc) {
-      this.proc.kill('SIGTERM');
+      this.proc.kill();
       this.proc = null;
     }
   }
@@ -86,15 +104,43 @@ export class ControlModeAttach implements OnModuleDestroy {
       '-r',
     ];
 
-    this.logger.log(`Spawning: tmux ${args.join(' ')}`);
+    this.logger.log(`Spawning (pty): ${TMUX_BIN} ${args.join(' ')}`);
 
-    const proc = spawn('tmux', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    // tmux -CC attach REQUIRES a controlling TTY (it calls tcgetattr on stdin).
+    // child_process.spawn gives no pty → `tcgetattr failed` → exit 1 crash-loop.
+    // node-pty allocates a real pseudo-terminal so the attach succeeds. This pty
+    // lives in the BROKER only — the no-PTY invariant applies to ddx-term-mcp, not
+    // the broker, which legitimately hosts the control-mode attach (SPIKE used a
+    // real TTY from iTerm2 for the same reason). Use the ABSOLUTE tmux path —
+    // node-pty's posix_spawnp does not reliably resolve PATH.
+    let proc: pty.IPty;
+    try {
+      proc = pty.spawn(TMUX_BIN, args, {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 30,
+        cwd: process.env['HOME'] ?? '/',
+        env: { ...process.env } as Record<string, string>,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`pty.spawn(${TMUX_BIN}) failed: ${msg} — retrying in ${RECONNECT_DELAY_MS}ms`);
+      this.proc = null;
+      if (!this.stopped) {
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          this.spawn();
+        }, RECONNECT_DELAY_MS);
+      }
+      return;
+    }
     this.proc = proc;
 
     let lineBuf = '';
 
-    proc.stdout?.on('data', (chunk: Buffer) => {
-      lineBuf += chunk.toString('utf8');
+    // node-pty merges stdout+stderr onto one data stream (it's a real terminal).
+    proc.onData((chunk: string) => {
+      lineBuf += chunk;
       let newline: number;
       // Process every complete line immediately — incremental, not buffered.
       while ((newline = lineBuf.indexOf('\n')) !== -1) {
@@ -104,26 +150,12 @@ export class ControlModeAttach implements OnModuleDestroy {
       }
     });
 
-    proc.stderr?.on('data', (chunk: Buffer) => {
-      this.logger.warn(`tmux stderr: ${chunk.toString('utf8').trim()}`);
-    });
-
-    proc.on('exit', (code, signal) => {
+    proc.onExit(({ exitCode, signal }) => {
       this.proc = null;
       if (this.stopped) return;
       this.logger.warn(
-        `tmux -CC attach exited (code=${String(code)} signal=${String(signal)}) — reconnecting in ${RECONNECT_DELAY_MS}ms`,
+        `tmux -CC attach exited (code=${String(exitCode)} signal=${String(signal)}) — reconnecting in ${RECONNECT_DELAY_MS}ms`,
       );
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null;
-        this.spawn();
-      }, RECONNECT_DELAY_MS);
-    });
-
-    proc.on('error', (err: Error) => {
-      this.logger.error(`tmux -CC attach spawn error: ${err.message}`);
-      this.proc = null;
-      if (this.stopped) return;
       this.reconnectTimer = setTimeout(() => {
         this.reconnectTimer = null;
         this.spawn();
@@ -132,16 +164,16 @@ export class ControlModeAttach implements OnModuleDestroy {
   }
 
   private handleLine(line: string): void {
-    if (!line || !this.resolver || !this.handler) return;
+    if (!line || !this.resolvers || !this.handler) return;
 
-    const result = parseControlModeLine(line, this.resolver);
+    const result = parseControlModeLine(line, this.resolvers);
     if (result.kind === 'frame') {
       this.handler(result.frame);
     }
   }
 
-  /** Resolve a windowId using the currently registered resolver. */
+  /** Resolve a windowId using the currently registered window resolver. */
   resolveWindowId(windowId: WindowId): TerminalId | undefined {
-    return this.resolver?.(windowId);
+    return this.resolvers?.resolveWindow(windowId);
   }
 }

@@ -21,21 +21,13 @@
  */
 
 import {
-  WebSocketGateway,
-  OnGatewayInit,
-  OnGatewayConnection,
-  OnGatewayDisconnect,
-  WebSocketServer,
-} from '@nestjs/websockets';
-// corsOrigins mirrors main.ts: sourced from CORS_ORIGINS env to cover raw ws://
-// upgrades — NestFactory global CORS does NOT apply to WebSocket upgrades (MED-2).
-const corsOrigins = (process.env['CORS_ORIGINS'] ?? '').split(',').filter(Boolean);
-import {
   Injectable,
   Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
 } from '@nestjs/common';
+import type { Server as HttpServer, IncomingMessage } from 'http';
+import type { Duplex } from 'stream';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { Server as WsServer, WebSocket } from 'ws';
@@ -66,26 +58,33 @@ interface Subscription {
   socket: WebSocket;
 }
 
+/** Minimal upgrade-request shape handleConnection reads (IncomingMessage satisfies it). */
+interface UpgradeRequest {
+  url?: string;
+}
+
 /** Pending coalesced output for one terminalId. */
 interface CoalesceBuffer {
   data: string;
   timer: ReturnType<typeof setTimeout>;
 }
 
+// NOT a @WebSocketGateway. @nestjs/platform-ws's WsAdapter routes upgrades by
+// EXACT `pathname === wsServer.path` match (ws-adapter.js ensureHttpServerExists),
+// so a registered path of `/term` (or the `/` default when no path is given) can
+// NEVER match the client's per-terminal URL `/term/<terminalId>` — the adapter
+// calls socket.destroy() ("socket hang up") before handleConnection runs. There is
+// no prefix/wildcard mode. So we OWN the upgrade: a raw ws.Server({ noServer:true })
+// attached to the Nest HTTP server's `upgrade` event (see attachTo), accepting any
+// `/term/<id>` path and parsing the terminalId out of the URL in handleConnection.
 @Injectable()
-@WebSocketGateway({ path: '/term', cors: { origin: corsOrigins } })
 export class TermGateway
-  implements
-    OnGatewayInit,
-    OnGatewayConnection,
-    OnGatewayDisconnect,
-    OnApplicationBootstrap,
-    OnModuleDestroy
+  implements OnApplicationBootstrap, OnModuleDestroy
 {
   private readonly logger = new Logger(TermGateway.name);
 
-  @WebSocketServer()
-  private server!: WsServer;
+  /** Raw ws.Server in noServer mode — we drive handleUpgrade ourselves. */
+  private readonly server: WsServer = new WsServer({ noServer: true });
 
   /** Map from terminalId → set of subscribed WebSocket clients. */
   private readonly subscribers = new Map<TerminalId, Set<WebSocket>>();
@@ -103,17 +102,45 @@ export class TermGateway
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
 
-  afterInit(_server: WsServer): void {
-    this.logger.log(`TermGateway initialised on path /term`);
+  /**
+   * Attach the raw ws.Server to the Nest HTTP server's `upgrade` event.
+   * Called from main.ts AFTER app.listen() so app.getHttpServer() is the real,
+   * listening server. Routes any `/term/<terminalId>` upgrade to handleConnection;
+   * destroys upgrades on other paths.
+   */
+  attachTo(httpServer: HttpServer): void {
+    httpServer.on(
+      'upgrade',
+      (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
+        const url = req.url ?? '';
+        if (!/^\/term\/[^/?]+/.test(url)) {
+          socket.destroy();
+          return;
+        }
+        this.server.handleUpgrade(req, socket, head, (ws: WebSocket): void => {
+          this.handleConnection(ws, req);
+        });
+      },
+    );
+    this.server.on('error', (err: Error): void => {
+      this.logger.error(`ws.Server error: ${err.message}`);
+    });
+    this.logger.log('TermGateway attached to HTTP upgrade on /term/:terminalId');
   }
 
   onApplicationBootstrap(): void {
-    // Start the control-mode attach loop. The resolver maps tmux windowId →
-    // terminalId (reverse lookup) so inbound %output frames are routed to the
-    // correct WebSocket subscriber set. SessionService owns the canonical
-    // registry; newly-created windows are immediately routable via this closure.
+    // Start the control-mode attach loop with BOTH resolvers:
+    //   - resolvePane:   paneId ('%N') → terminalId  — for %output (pane-keyed)
+    //   - resolveWindow: windowId ('@N') → terminalId — for layout/window events
+    // %output is pane-keyed; resolving it against the window registry dropped
+    // every frame (pane '%3' ≠ window '@3'). SessionService owns both maps.
     this.controlModeAttach.start(
-      (windowId: WindowId) => this.sessionService.resolveTerminalId(windowId),
+      {
+        resolvePane: (paneId: string) =>
+          this.sessionService.resolveTerminalIdByPane(paneId),
+        resolveWindow: (windowId: WindowId) =>
+          this.sessionService.resolveTerminalId(windowId),
+      },
       (frame: ServerFrame) => this.dispatchFrame(frame),
     );
     this.logger.log('Control-mode attach loop started');
@@ -128,7 +155,7 @@ export class TermGateway
     this.coalesce.clear();
   }
 
-  handleConnection(socket: WebSocket, req: { url?: string }): void {
+  handleConnection(socket: WebSocket, req: UpgradeRequest): void {
     // Extract terminalId from the WS URL: /term/<terminalId>
     const url = req.url ?? '';
     const match = /^\/term\/([^/?]+)/.exec(url);
@@ -151,6 +178,10 @@ export class TermGateway
 
     socket.on('message', (raw: Buffer | string) => {
       this.handleClientMessage(socket, raw.toString());
+    });
+    // We own the upgrade now, so we also own disconnect cleanup (no adapter).
+    socket.on('close', () => {
+      this.handleDisconnect(socket);
     });
   }
 

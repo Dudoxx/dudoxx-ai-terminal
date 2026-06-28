@@ -75,6 +75,15 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
   /** Canonical terminal registry: terminalId → descriptor (durable binding). */
   private readonly registry = new Map<TerminalId, TerminalDescriptor>();
 
+  /**
+   * tmux paneId ('%N') → windowId ('@N'). tmux `%output` lines carry a PANE id,
+   * but the registry is keyed on WINDOW ids — without this map every %output
+   * frame fails reverse-resolution and is dropped (no frames reach the client).
+   * Populated on createTerminal and refreshed via syncPaneMap; one pane per
+   * window in this single-pane-per-terminal model.
+   */
+  private readonly paneToWindow = new Map<string, WindowId>();
+
   /** Monotonic window counter for auto-generated terminalIds (t01, t02, …). */
   private windowCounter = 0;
 
@@ -91,6 +100,8 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit(): Promise<void> {
     await this.ensureSession();
+    // Seed paneId → windowId from any pre-existing windows (reused session).
+    await this.syncPaneMap();
     this.logger.log(
       `Session '${SESSION_NAME}' ready on socket ${SOCKET_PATH}`,
     );
@@ -188,8 +199,14 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     };
 
     this.registry.set(terminalId, descriptor);
+    // Record the paneId → windowId binding so %output frames (pane-keyed) route.
+    const paneId = await this.resolvePaneId(windowId);
+    if (paneId) {
+      this.paneToWindow.set(paneId, windowId);
+    }
     this.logger.log(
-      `Terminal created: ${terminalId} → ${windowId} (panePid=${pids.panePid})`,
+      `Terminal created: ${terminalId} → ${windowId} ` +
+        `(pane=${paneId ?? '?'}, panePid=${pids.panePid})`,
     );
     return descriptor;
   }
@@ -207,6 +224,12 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       ...tmux('kill-window', '-t', `${SESSION_NAME}:${descriptor.windowId}`),
     ]);
     this.registry.delete(terminalId);
+    // Drop any paneId bindings that pointed at the killed window.
+    for (const [paneId, windowId] of this.paneToWindow.entries()) {
+      if (windowId === descriptor.windowId) {
+        this.paneToWindow.delete(paneId);
+      }
+    }
     this.logger.log(`Terminal destroyed: ${terminalId} (${descriptor.windowId})`);
   }
 
@@ -253,6 +276,18 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Reverse lookup for tmux `%output` frames: paneId ('%N') → terminalId.
+   * %output lines are PANE-keyed, but the registry is WINDOW-keyed, so we hop
+   * paneId → windowId (paneToWindow map) → terminalId (registry). Returns
+   * undefined for unknown panes (frame is dropped by the caller).
+   */
+  resolveTerminalIdByPane(paneId: string): TerminalId | undefined {
+    const windowId = this.paneToWindow.get(paneId);
+    if (!windowId) return undefined;
+    return this.resolveTerminalId(windowId);
   }
 
   // ── private helpers ──────────────────────────────────────────────────────
@@ -308,6 +343,51 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
    * fgPid   = first child of panePid via `pgrep -P` (the foreground program),
    *           or null when the shell is at the prompt with no child.
    */
+  /**
+   * Read the tmux paneId ('%N') for a window's (single) pane.
+   * Returns undefined if the window has no resolvable pane (race / killed).
+   */
+  private async resolvePaneId(windowId: WindowId): Promise<string | undefined> {
+    try {
+      const { stdout } = await this.exec('tmux', [
+        ...tmux(
+          'display-message', '-t', `${SESSION_NAME}:${windowId}`,
+          '-p', '#{pane_id}',
+        ),
+      ]);
+      const paneId = stdout.trim();
+      return paneId.length > 0 ? paneId : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Bulk-rebuild the paneId → windowId map from the live session. Called on
+   * startup so a REUSED session (existing windows the broker did not create)
+   * still routes %output frames. Best-effort: failures leave the map as-is.
+   */
+  private async syncPaneMap(): Promise<void> {
+    try {
+      const { stdout } = await this.exec('tmux', [
+        ...tmux(
+          'list-panes', '-s', '-t', SESSION_NAME,
+          '-F', '#{pane_id} #{window_id}',
+        ),
+      ]);
+      for (const row of stdout.split('\n')) {
+        const [paneId, windowId] = row.trim().split(/\s+/);
+        if (paneId && windowId) {
+          this.paneToWindow.set(paneId, windowId as WindowId);
+        }
+      }
+      this.logger.log(`Pane map synced — ${this.paneToWindow.size} pane(s)`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`syncPaneMap failed (non-fatal): ${msg}`);
+    }
+  }
+
   async resolvePids(windowId: WindowId): Promise<PidSnapshot> {
     const target = `${SESSION_NAME}:${windowId}`;
 

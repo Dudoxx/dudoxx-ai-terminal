@@ -13,5 +13,6 @@ import { ControlModeModule } from '../control-mode/control-mode.module';
 @Module({
   imports: [SessionModule, ControlModeModule],
   providers: [TermGateway],
+  exports: [TermGateway],
 })
 export class GatewayModule {}

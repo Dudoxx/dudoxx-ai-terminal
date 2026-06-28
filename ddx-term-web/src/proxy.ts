@@ -13,6 +13,8 @@ import { routing } from './i18n/routing';
 export default createMiddleware(routing);
 
 export const config = {
-  // Match all routes except Next.js internals and static files.
-  matcher: ['/((?!_next|_vercel|.*\\..*).*)'],
+  // Match all routes except Next.js internals, static files, AND /api (broker
+  // proxy paths must NOT be locale-prefixed — prefixing /api/v1/terminals →
+  // /en/api/v1/terminals breaks the rewrite and 404s the broker call).
+  matcher: ['/((?!api|_next|_vercel|.*\\..*).*)'],
 };

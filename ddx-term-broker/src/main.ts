@@ -13,7 +13,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
-import { WsAdapter } from '@nestjs/platform-ws';
+import type { Server as HttpServer } from 'http';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { version as APP_VERSION } from '../package.json';
@@ -22,6 +22,7 @@ import { HttpExceptionFilter } from './platform/common/filters/http-exception.fi
 import { LoggingInterceptor } from './platform/common/interceptors/logging.interceptor';
 import { BrokerLogger } from './platform/common/logging/broker-logger';
 import { BootSummaryService } from './platform/common/boot/boot-summary.service';
+import { TermGateway } from './modules/gateway/term.gateway';
 
 async function bootstrap(): Promise<void> {
   const brokerLogger = new BrokerLogger();
@@ -30,8 +31,11 @@ async function bootstrap(): Promise<void> {
     logger: brokerLogger,
   });
 
-  // Raw ws adapter for binary WebSocket frames (control-mode output bytes).
-  app.useWebSocketAdapter(new WsAdapter(app));
+  // NOTE: no useWebSocketAdapter. @nestjs/platform-ws's WsAdapter routes upgrades
+  // by EXACT pathname match, so it can never deliver the per-terminal URL
+  // `/term/<terminalId>` to the gateway. Instead TermGateway owns its own raw
+  // ws.Server({ noServer: true }) and is attached to the HTTP server's `upgrade`
+  // event below (after listen, so getHttpServer() is the real listening server).
 
   const port = parseInt(process.env['DDX_TERM_BROKER_PORT'] ?? '6481', 10);
   const host = process.env['DDX_TERM_BROKER_HOST'] ?? '127.0.0.1';
@@ -72,6 +76,10 @@ async function bootstrap(): Promise<void> {
   });
 
   await app.listen(port, host);
+
+  // Wire the per-terminalId WS upgrade handler onto the now-listening HTTP server.
+  const httpServer = app.getHttpServer() as HttpServer;
+  app.get(TermGateway).attachTo(httpServer);
 
   // Boot banner — rendered after listen() for a TRUE boot time reading.
   const bootSummary = app.get(BootSummaryService);

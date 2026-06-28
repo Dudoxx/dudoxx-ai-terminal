@@ -35,6 +35,23 @@ import {
  */
 export type WindowIdResolver = (windowId: WindowId) => TerminalId | undefined;
 
+/**
+ * Resolves a tmux paneId (e.g. '%3') to the broker's terminalId.
+ * Used ONLY for `%output` lines, which are pane-keyed (NOT window-keyed). The
+ * registry is window-keyed, so this hops paneId → windowId → terminalId in
+ * SessionService. Returns undefined for unknown panes (frame dropped).
+ */
+export type PaneIdResolver = (paneId: string) => TerminalId | undefined;
+
+/**
+ * The two resolvers the parser needs. Kept distinct so an `%output` pane-id is
+ * never resolved against the window registry (the bug that dropped all frames).
+ */
+export interface FrameResolvers {
+  resolveWindow: WindowIdResolver;
+  resolvePane: PaneIdResolver;
+}
+
 /** A parsed control-mode line ready to be fanned out. */
 export type ParsedFrame =
   | { kind: 'frame'; frame: ServerFrame }
@@ -43,24 +60,25 @@ export type ParsedFrame =
 /**
  * Parse a single tmux control-mode output line into a typed frame.
  *
- * @param line     — one complete line from tmux -CC stdout (no trailing \n)
- * @param resolve  — maps tmux windowId → terminalId for routing
+ * @param line       — one complete line from tmux -CC stdout (no trailing \n)
+ * @param resolvers  — pane resolver (for %output) + window resolver (for the rest)
  */
 export function parseControlModeLine(
   line: string,
-  resolve: WindowIdResolver,
+  resolvers: FrameResolvers,
 ): ParsedFrame {
   if (line.startsWith('%output ')) {
-    return parseOutputLine(line, resolve);
+    // %output is PANE-keyed — resolve via the pane resolver, not the window one.
+    return parseOutputLine(line, resolvers.resolvePane);
   }
   if (line.startsWith('%layout-change ')) {
-    return parseLayoutChangeLine(line, resolve);
+    return parseLayoutChangeLine(line, resolvers.resolveWindow);
   }
   if (line.startsWith('%window-add ')) {
-    return parseWindowAddLine(line, resolve);
+    return parseWindowAddLine(line, resolvers.resolveWindow);
   }
   if (line.startsWith('%window-close ')) {
-    return parseWindowCloseLine(line, resolve);
+    return parseWindowCloseLine(line, resolvers.resolveWindow);
   }
   // %begin / %end / %session-changed / %exit — control flow, not output frames.
   return { kind: 'unknown', raw: line };
@@ -73,23 +91,21 @@ export function parseControlModeLine(
  *
  * tmux encodes %output data as octal sequences (\NNN) for non-printable bytes.
  * We forward the raw string; xterm.js handles the decode.
- * The pane-id is a pane specifier ('%<N>'), NOT a window id — we look up the
- * window via display-message externally; here we receive the pre-resolved
- * terminalId from the attach layer.
+ * The pane-id is a pane specifier ('%<N>'), NOT a window id. We resolve it via
+ * the PANE resolver (paneId → windowId → terminalId in SessionService) — casting
+ * it to a windowId and resolving against the window registry was the bug that
+ * dropped EVERY output frame (pane '%3' never equals window '@3').
  */
-function parseOutputLine(line: string, resolve: WindowIdResolver): ParsedFrame {
+function parseOutputLine(line: string, resolvePane: PaneIdResolver): ParsedFrame {
   // Format: %output %<pane-id> <data...>
   // The pane-id token starts with %, e.g. %3
   const spaceAfterCmd = line.indexOf(' ', 8); // after '%output '
   if (spaceAfterCmd === -1) return { kind: 'unknown', raw: line };
 
-  const paneToken = line.slice(8, spaceAfterCmd); // e.g. '%3'
+  const paneId = line.slice(8, spaceAfterCmd); // e.g. '%3'
   const data = line.slice(spaceAfterCmd + 1);
 
-  // The attach layer converts pane-id → windowId before calling us.
-  // We receive the windowId directly as the pane token in broker-mode.
-  const windowId = paneToken as WindowId;
-  const terminalId = resolve(windowId);
+  const terminalId = resolvePane(paneId);
   if (!terminalId) return { kind: 'unknown', raw: line };
 
   const frame: ServerFrame = {

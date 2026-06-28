@@ -29,6 +29,12 @@ const nextConfig: NextConfig = {
     const brokerBase =
       process.env['BROKER_BASE_URL'] ?? 'http://localhost:6481'; // server-only
     return [
+      // Bare collection path (GET list / POST create).
+      {
+        source: '/api/v1/terminals',
+        destination: `${brokerBase}/api/v1/terminals`,
+      },
+      // Sub-paths (/:id, /:id/snapshot, …).
       {
         source: '/api/v1/terminals/:path*',
         destination: `${brokerBase}/api/v1/terminals/:path*`,

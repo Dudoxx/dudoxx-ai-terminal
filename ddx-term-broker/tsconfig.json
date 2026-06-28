@@ -17,10 +17,7 @@
     "skipLibCheck": true,
     "strictNullChecks": true,
     "noImplicitAny": true,
-    "verbatimModuleSyntax": false,
-    "paths": {
-      "@ddx/term-contract": ["../packages/ddx-term-contract/src/index.ts"]
-    }
+    "verbatimModuleSyntax": false
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.spec.ts"]

@@ -49,15 +49,14 @@ function buildXtermTheme(): Record<string, string> {
   };
 }
 
-/** WS URL builder — reads the env var set at build time or falls back to same-origin path. */
+/** WS URL builder — ALWAYS same-origin. The custom Next server (server.mjs)
+ *  proxies /term/<id> upgrades to the broker, so the browser never talks to the
+ *  broker port directly (single origin → HTTPS-safe, no exposed broker, no
+ *  mixed-content). `wss:` under HTTPS, `ws:` under HTTP — matched to the page. */
 function buildWsUrl(terminalId: TerminalId): string {
-  // NEXT_PUBLIC_BROKER_WS_URL must be ws://host:port in dev (env-injected).
-  // In production the WS should be proxied through the same origin.
-  const base =
-    typeof window !== 'undefined'
-      ? (process.env['NEXT_PUBLIC_BROKER_WS_URL'] ?? `ws://${window.location.host}`)
-      : '';
-  return `${base}/term/${terminalId}`;
+  if (typeof window === 'undefined') return `/term/${terminalId}`;
+  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${scheme}://${window.location.host}/term/${terminalId}`;
 }
 
 /** Lifecycle state of the WS connection. */
