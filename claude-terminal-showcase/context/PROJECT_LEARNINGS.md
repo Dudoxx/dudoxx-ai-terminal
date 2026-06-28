@@ -16,3 +16,9 @@
   2026-06-28 · [CONTRACT] · PITFALL · Make optional fields explicit with default values.
   2026-06-28 · [WEB] · RULE · Poll frequently for live updates of dynamic resources.
   2026-06-28 · [DOCS] · DISCOVERY · npm strips data URIs from package assets.
+
+- 2026-06-28 · d1e3bc1 · domains:  meta. Net-new lessons: 4.
+  2026-06-28 · [GENERAL] · PITFALL · Don't assume pane IDs map directly to window IDs; resolve them via the session service.
+  2026-06-28 · [GENERAL] · PITFALL · Forwarding raw octal-encoded tmux output to xterm.js caused data loss; decode it first.
+  2026-06-28 · [GENERAL] · RULE · Poll the terminal list every 2 seconds to ensure agent-created terminals appear live.
+  2026-06-28 · [GENERAL] · DISCOVERY · The `DDX_TERM_BROKER_URL` must include the `/api/v1` broker prefix.
