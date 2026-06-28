@@ -9,6 +9,14 @@
 
 @import "tailwindcss";
 
+/* xterm.js base stylesheet — REQUIRED. Without it the renderer's hidden helper
+ * layer (.xterm-helpers / .xterm-char-measure-element) is NOT positioned
+ * off-screen, so xterm's internal char-width measurement string leaks into view
+ * as a repeated-glyph row at the top of the terminal (the "?????/SSSS" scramble).
+ * The canvas/WebGL renderer masked this; the DOM renderer (our WebGL fallback)
+ * exposes it. This import carries the visibility:hidden + left:-9999em rules. */
+@import "@xterm/xterm/css/xterm.css";
+
 @source "../**/*.{ts,tsx}";
 
 @theme {

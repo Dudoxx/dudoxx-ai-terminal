@@ -87,14 +87,55 @@ export function parseControlModeLine(
 // ── individual line parsers ───────────────────────────────────────────────────
 
 /**
+ * Decode tmux control-mode `%output` octal escapes back into raw bytes.
+ *
+ * tmux -CC encodes any non-printable / unsafe byte in `%output` data as a
+ * backslash followed by EXACTLY three octal digits (e.g. ESC → `\033`, CR →
+ * `\015`), and a literal backslash as `\\`. xterm.js does NOT understand that
+ * encoding — it expects the actual control bytes — so forwarding the escaped
+ * text verbatim makes ANSI sequences render as literal `\033[0m…` characters
+ * (the blank/garbled-pane symptom). We must decode here, in the producer, so the
+ * `%output` live path matches the already-decoded `capture-pane` snapshot path.
+ */
+function decodeTmuxOctal(s: string): string {
+  if (!s.includes('\\')) return s; // fast path: nothing escaped
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    const next = s[i + 1];
+    if (ch === '\\' && next !== undefined) {
+      // `\\` → a single literal backslash.
+      if (next === '\\') {
+        out += '\\';
+        i += 1;
+        continue;
+      }
+      // `\NNN` → the byte with that octal value (tmux always emits 3 digits).
+      const d2 = s[i + 2];
+      const d3 = s[i + 3];
+      if (
+        next >= '0' && next <= '7' &&
+        d2 !== undefined && d2 >= '0' && d2 <= '7' &&
+        d3 !== undefined && d3 >= '0' && d3 <= '7'
+      ) {
+        out += String.fromCharCode(parseInt(next + d2 + d3, 8));
+        i += 3;
+        continue;
+      }
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/**
  * %output %<pane-id> <data>
  *
- * tmux encodes %output data as octal sequences (\NNN) for non-printable bytes.
- * We forward the raw string; xterm.js handles the decode.
  * The pane-id is a pane specifier ('%<N>'), NOT a window id. We resolve it via
  * the PANE resolver (paneId → windowId → terminalId in SessionService) — casting
  * it to a windowId and resolving against the window registry was the bug that
- * dropped EVERY output frame (pane '%3' never equals window '@3').
+ * dropped EVERY output frame (pane '%3' never equals window '@3'). The data is
+ * octal-decoded (decodeTmuxOctal) before forwarding so xterm receives real bytes.
  */
 function parseOutputLine(line: string, resolvePane: PaneIdResolver): ParsedFrame {
   // Format: %output %<pane-id> <data...>
@@ -103,7 +144,7 @@ function parseOutputLine(line: string, resolvePane: PaneIdResolver): ParsedFrame
   if (spaceAfterCmd === -1) return { kind: 'unknown', raw: line };
 
   const paneId = line.slice(8, spaceAfterCmd); // e.g. '%3'
-  const data = line.slice(spaceAfterCmd + 1);
+  const data = decodeTmuxOctal(line.slice(spaceAfterCmd + 1));
 
   const terminalId = resolvePane(paneId);
   if (!terminalId) return { kind: 'unknown', raw: line };

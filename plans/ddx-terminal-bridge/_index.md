@@ -1,6 +1,6 @@
 # Plan — ddx-terminal-bridge
 
-Status: COMPLETED
+Status: RECONCILED
 Scope: ddx-terminal-bridge · Execution model: parallel (groups A→B→C→D) · Tasks: 9 · Shards: 7
 
 ## Context

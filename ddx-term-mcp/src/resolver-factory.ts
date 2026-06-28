@@ -19,10 +19,33 @@ import {
 import { TerminalMap } from './terminal-map.js';
 import type { TmuxClient } from './tmux/tmux.client.js';
 
+/**
+ * Broker REST request timeout (ms). A bare `fetch` to a down/unreachable broker
+ * hangs on the OS connect timeout (tens of seconds to minutes), which would hang
+ * the MCP tool call indefinitely. We bound it so a broker outage surfaces as a
+ * fast, clear error the agent can act on instead of a silent stall.
+ */
+const BROKER_FETCH_TIMEOUT_MS = Number(process.env['DDX_TERM_BROKER_TIMEOUT_MS'] ?? 5_000);
+
 /** Adapt the global fetch to the FetchLike surface the broker resolver needs. */
 const globalFetch: FetchLike = async (input, init) => {
-  const res = await fetch(input, init);
-  return { ok: res.ok, status: res.status, json: () => res.json() };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), BROKER_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(input, { ...init, signal: controller.signal });
+    return { ok: res.ok, status: res.status, json: () => res.json() };
+  } catch (err: unknown) {
+    // Normalize an abort/connection failure into a clear, attributable error.
+    const reason =
+      err instanceof Error && err.name === 'AbortError'
+        ? `broker did not respond within ${BROKER_FETCH_TIMEOUT_MS}ms`
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    throw new Error(`broker request failed: ${reason}`);
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 /**

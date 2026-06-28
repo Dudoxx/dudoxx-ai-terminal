@@ -88,9 +88,19 @@ export class TerminalService {
   }
 
   /**
-   * Capture the VISIBLE viewport grid for a terminal — term_snapshot.
-   * Uses `capture-pane -p` WITHOUT `-S` so only the visible screen is
-   * returned (O(grid), not O(scrollback)). See RESPONSIVENESS §2.9.
+   * Capture the VISIBLE viewport for a terminal — term_snapshot.
+   *
+   * To make a browser refresh restore the FULL on-screen state (not just plain
+   * text), the snapshot is built so xterm repaints it faithfully:
+   *   • `capture-pane -e -p` — `-e` emits SGR escape sequences, preserving the
+   *     colors/attributes already on screen (a plain `-p` capture loses them).
+   *   • A leading `ESC[2J ESC[H` (clear + home) so the snapshot paints onto a
+   *     clean grid from the top-left, not appended after whatever was there.
+   *   • A trailing `ESC[<row>;<col>H` built from tmux `cursor_y`/`cursor_x`
+   *     (1-based) so the cursor lands exactly where the shell's cursor is — the
+   *     "cursor position not maintained on refresh" fix.
+   * Still visible-only (no `-S`) so it stays O(grid), not O(scrollback)
+   * (RESPONSIVENESS §2.9).
    */
   async snapshot(rawId: string): Promise<SnapshotResult> {
     const terminalId = toTerminalId(rawId);
@@ -99,15 +109,36 @@ export class TerminalService {
       throw new NotFoundException(`Terminal not found: ${rawId}`);
     }
 
+    const ESC = String.fromCharCode(27);
     const target = `${SESSION_NAME}:${descriptor.windowId}`;
-    const { stdout } = await this.exec('tmux', tmux(
-      'capture-pane', '-t', target, '-p',
+    const { stdout: grid } = await this.exec('tmux', tmux(
+      'capture-pane', '-t', target, '-e', '-p',
     ));
+
+    // tmux cursor position (0-based) → terminal CUP escape (1-based row;col).
+    let cursorSeq = '';
+    try {
+      const { stdout: pos } = await this.exec('tmux', tmux(
+        'display-message', '-t', target, '-p', '#{cursor_y} #{cursor_x}',
+      ));
+      const [yStr, xStr] = pos.trim().split(/\s+/);
+      const row = Number(yStr);
+      const col = Number(xStr);
+      if (Number.isFinite(row) && Number.isFinite(col)) {
+        cursorSeq = `${ESC}[${row + 1};${col + 1}H`;
+      }
+    } catch {
+      // Cursor position is best-effort — fall back to no explicit positioning.
+    }
+
+    // Clear + home (ESC[2J ESC[H), paint the attributed grid, then place the
+    // cursor (ESC[row;colH) so a refresh restores the exact on-screen state.
+    const content = `${ESC}[2J${ESC}[H${grid}${cursorSeq}`;
 
     const sessionDesc = this.sessionService.getSessionDescriptor();
     return {
       terminalId,
-      content: stdout,
+      content,
       cols: sessionDesc.cols,
       rows: sessionDesc.rows,
       capturedAt: Date.now(),

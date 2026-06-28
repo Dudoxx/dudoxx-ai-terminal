@@ -95,6 +95,16 @@ export class TermGateway
   /** All live connections — keyed by socket for quick subscription lookup. */
   private readonly connections = new Map<WebSocket, Subscription>();
 
+  /**
+   * Per-terminalId input serialization tail. Browser keystrokes arrive as many
+   * separate frames in rapid succession; each one spawns an async `tmux send-keys`
+   * subprocess. Without serialization those subprocesses race and land in tmux
+   * OUT OF ORDER (typed "TYPING" arrives as "TYPIN_GOK…"). We chain every input
+   * for a terminal onto its previous promise so they execute strictly in arrival
+   * order. The chain is best-effort — a failed link never breaks the tail.
+   */
+  private readonly inputQueue = new Map<TerminalId, Promise<void>>();
+
   constructor(
     private readonly sessionService: SessionService,
     private readonly controlModeAttach: ControlModeAttach,
@@ -248,12 +258,36 @@ export class TermGateway
         socket.close(1008, 'terminalId mismatch');
         return;
       }
-      void this.handleInputFrame(socket, parsed.terminalId, parsed.data, parsed.enter);
+      this.enqueueInput(parsed.terminalId, parsed.data, parsed.enter);
     }
   }
 
+  /**
+   * Chain an input frame onto the terminal's serialization tail so concurrent
+   * keystroke frames execute in strict arrival order (see inputQueue). Each link
+   * is isolated: a rejected send-keys is swallowed so it can't break the chain
+   * for subsequent keystrokes.
+   */
+  private enqueueInput(
+    terminalId: TerminalId,
+    data: string,
+    enter?: boolean,
+  ): void {
+    const prev = this.inputQueue.get(terminalId) ?? Promise.resolve();
+    const next = prev
+      .catch(() => undefined)
+      .then(() => this.handleInputFrame(terminalId, data, enter));
+    this.inputQueue.set(terminalId, next);
+    // Drop the tail reference once it drains so a quiet terminal doesn't pin the
+    // last promise forever (only if no newer frame replaced it meanwhile).
+    void next.finally(() => {
+      if (this.inputQueue.get(terminalId) === next) {
+        this.inputQueue.delete(terminalId);
+      }
+    });
+  }
+
   private async handleInputFrame(
-    _socket: WebSocket,
     terminalId: TerminalId,
     data: string,
     enter?: boolean,
@@ -265,17 +299,51 @@ export class TermGateway
     }
     const target = `${SESSION_NAME}:${windowId}`;
 
-    // MUST use send-keys -l for literal text injection (SPIKE.md discipline).
-    // A separate Enter key event is sent if requested.
+    // Two input shapes converge here (the input reciprocal pair):
+    //   • MCP one-shot: { data: "echo hi", enter: true } — literal text, then a
+    //     SEPARATE Enter key event. `enter` is explicitly set.
+    //   • Browser per-char: xterm's onData streams RAW INPUT BYTES — printable
+    //     chars, `\r` for Return (0x0d), control chars (Ctrl-C = 0x03), and CSI
+    //     escape sequences for arrows/Home/End (Up = ESC[A = 1b 5b 41), etc.
+    //     These are exactly what a PTY's stdin receives.
+    // For the browser path we deliver those bytes VERBATIM via `send-keys -H`
+    // (hex), so tmux hands the pane's shell the precise byte stream — `\r` submits,
+    // 0x03 raises SIGINT, ESC[A moves the cursor. `send-keys -l` (literal TEXT)
+    // could not do this: it only types printable text and mis-handles control and
+    // escape bytes (the cause of "can't type / Ctrl-C ignored / cursor broken").
+    // The explicit-`enter` MCP path keeps its literal-text + Enter-key behavior.
     try {
-      await execFileAsync('tmux', tmux('send-keys', '-t', target, '-l', data));
-      if (enter) {
-        await execFileAsync('tmux', tmux('send-keys', '-t', target, 'Enter'));
+      if (enter === undefined) {
+        await this.sendBrowserKeys(target, data);
+      } else {
+        await execFileAsync('tmux', tmux('send-keys', '-t', target, '-l', data));
+        if (enter) {
+          await execFileAsync('tmux', tmux('send-keys', '-t', target, 'Enter'));
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`send-keys failed for ${terminalId}: ${msg}`);
     }
+  }
+
+  /**
+   * Deliver a raw browser keystroke chunk to the pane as exact bytes via
+   * `tmux send-keys -H <hex…>`. xterm's onData stream IS raw terminal input
+   * (printable + control bytes + CSI escape sequences); hex-forwarding makes the
+   * broker behave like a PTY stdin write — every byte reaches the shell unaltered,
+   * so Return submits, Ctrl-C interrupts, and arrow keys move the cursor. One
+   * frame → ONE atomic `send-keys` call (the per-terminal input queue keeps frames
+   * in arrival order), which also removes the char-splitting reorder hazard.
+   */
+  private async sendBrowserKeys(target: string, data: string): Promise<void> {
+    if (data.length === 0) return;
+    // UTF-8 encode, then one two-digit hex token per byte. send-keys -H accepts a
+    // space-separated list of hex byte values and injects them in order.
+    const hex = Array.from(Buffer.from(data, 'utf8'), (b) =>
+      b.toString(16).padStart(2, '0'),
+    );
+    await execFileAsync('tmux', tmux('send-keys', '-t', target, '-H', ...hex));
   }
 
   // ── coalescing (flood control, RESPONSIVENESS §3) ─────────────────────────

@@ -144,8 +144,14 @@ export class ControlModeAttach implements OnModuleDestroy {
       let newline: number;
       // Process every complete line immediately — incremental, not buffered.
       while ((newline = lineBuf.indexOf('\n')) !== -1) {
-        const line = lineBuf.slice(0, newline);
+        let line = lineBuf.slice(0, newline);
         lineBuf = lineBuf.slice(newline + 1);
+        // The control-mode stream runs through a PTY whose ONLCR maps the
+        // protocol's `\n` line terminator to `\r\n`. Splitting on `\n` leaves a
+        // trailing `\r` on each line; for an `%output` line that stray CR becomes
+        // a real carriage-return appended to the pane data, snapping the browser
+        // cursor to column 0 and garbling every live keystroke echo. Strip it.
+        if (line.endsWith('\r')) line = line.slice(0, -1);
         this.handleLine(line);
       }
     });

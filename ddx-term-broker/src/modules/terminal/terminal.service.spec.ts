@@ -184,6 +184,10 @@ describe('TerminalService › snapshot', () => {
 
     expect(result.terminalId).toBe('snap-term');
     expect(typeof result.content).toBe('string');
+    // Snapshot is prefixed with clear-screen + cursor-home (ESC[2J ESC[H) so a
+    // refresh repaints onto a clean grid from the top-left, then the captured grid.
+    expect(result.content).toContain('\x1b[2J\x1b[H');
+    expect(result.content).toContain('mock-screen');
     expect(result.cols).toBe(120);
     expect(result.rows).toBe(30);
     expect(result.capturedAt).toBeGreaterThan(0);

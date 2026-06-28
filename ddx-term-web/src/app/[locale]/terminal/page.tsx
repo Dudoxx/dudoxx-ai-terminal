@@ -100,6 +100,10 @@ export default function TerminalPage() {
     const callbacks: XtermClientCallbacks = {
       onStateChange: (state) => setConnState(state),
       onData: () => { /* keystrokes handled internally by xterm */ },
+      // After an auto-reconnect (e.g. the broker restarted), re-fetch the
+      // snapshot so the just-reconnected socket repaints the current frame —
+      // same resubscribe+snapshot contract as a tab switch.
+      onReconnect: () => fetchSnapshot(id),
     };
 
     const client = new XtermClient(terminalId, el, callbacks);

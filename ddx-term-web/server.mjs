@@ -53,11 +53,44 @@ const server = createServer((req, res) => {
 // noServer WS — we perform the handshake ourselves only for /term/*.
 const wss = new WebSocketServer({ noServer: true });
 
+/**
+ * Sanitize a WebSocket close code for passing to `.close(code)`.
+ *
+ * The WS spec RESERVES 1004, 1005, 1006, and 1015 — they may appear in a RECEIVED
+ * close event (1006 = abnormal closure when the broker is killed) but passing any
+ * of them to `.close()` throws RangeError. That uncaught throw is exactly what
+ * crashed the whole web process when the broker restarted. Only 1000 and the
+ * application range 3000-4999 are safe to forward; everything else maps to 1011
+ * (internal error / going away).
+ */
+function safeCloseCode(code) {
+  if (code === 1000) return 1000;
+  if (typeof code === 'number' && code >= 3000 && code <= 4999) return code;
+  return 1011;
+}
+
+/** Close a socket without ever throwing (reserved code, double-close, dead peer). */
+function safeClose(ws, code, reason) {
+  try {
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close(safeCloseCode(code), reason);
+    }
+  } catch {
+    // Last resort — terminate hard rather than crash the process.
+    try { ws.terminate?.(); } catch { /* give up silently */ }
+  }
+}
+
 server.on('upgrade', (req, socket, head) => {
+  // The RAW upgrade socket can emit 'error' (ECONNRESET) before/while we wire the
+  // WS client. An 'error' event with no listener is an unhandled exception that
+  // crashes Node — attach a guard immediately, the instant we get the socket.
+  socket.on('error', () => { try { socket.destroy(); } catch { /* noop */ } });
+
   const url = req.url ?? '';
   if (!TERM_PATH.test(url)) {
     // Not a terminal socket → let Next handle it (HMR, etc.).
-    upgradeHandler(req, socket, head).catch(() => socket.destroy());
+    upgradeHandler(req, socket, head).catch(() => { try { socket.destroy(); } catch { /* noop */ } });
     return;
   }
 
@@ -65,37 +98,55 @@ server.on('upgrade', (req, socket, head) => {
   // and pipe both directions. Frames are opaque — we don't parse them here.
   wss.handleUpgrade(req, socket, head, (client) => {
     const target = `${brokerWsBase}${url}`;
-    const upstream = new WebSocket(target);
+    let upstream;
+    try {
+      upstream = new WebSocket(target);
+    } catch {
+      // Bad URL / immediate failure — close the browser side cleanly, don't throw.
+      safeClose(client, 1011, 'broker unreachable');
+      return;
+    }
     let upstreamOpen = false;
     const pending = [];
 
+    // EVERY socket gets an 'error' listener so a peer drop never becomes an
+    // unhandled exception. The handlers below are all try-wrapped via safeClose.
     upstream.on('open', () => {
       upstreamOpen = true;
-      for (const m of pending) upstream.send(m);
+      try { for (const m of pending) upstream.send(m); } catch { /* peer gone */ }
       pending.length = 0;
     });
     upstream.on('message', (data) => {
-      if (client.readyState === WebSocket.OPEN) client.send(data.toString());
+      if (client.readyState === WebSocket.OPEN) {
+        try { client.send(data.toString()); } catch { /* client gone */ }
+      }
     });
-    upstream.on('close', (code) => {
-      if (client.readyState === WebSocket.OPEN) client.close(code <= 1015 ? code : 1011);
-    });
-    upstream.on('error', () => {
-      if (client.readyState === WebSocket.OPEN) client.close(1011, 'broker unreachable');
-    });
+    upstream.on('close', (code) => safeClose(client, code, 'broker closed'));
+    upstream.on('error', () => safeClose(client, 1011, 'broker unreachable'));
 
     client.on('message', (data) => {
       const m = data.toString();
-      if (upstreamOpen) upstream.send(m);
-      else pending.push(m);
-    });
-    client.on('close', () => {
-      if (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING) {
-        upstream.close();
+      if (upstreamOpen) {
+        try { upstream.send(m); } catch { /* upstream gone */ }
+      } else {
+        pending.push(m);
       }
     });
-    client.on('error', () => upstream.close());
+    client.on('close', () => safeClose(upstream, 1000, 'client closed'));
+    client.on('error', () => safeClose(upstream, 1011, 'client error'));
   });
+});
+
+// Process-level backstop. The per-socket error handling above is the real fix,
+// but a stray unhandled error in any dependency must NOT take down the whole web
+// tier (which would also drop every other connected terminal). Log and survive.
+process.on('uncaughtException', (err) => {
+  // eslint-disable-next-line no-console
+  console.error('[server] uncaughtException (surviving):', err?.message ?? err);
+});
+process.on('unhandledRejection', (reason) => {
+  // eslint-disable-next-line no-console
+  console.error('[server] unhandledRejection (surviving):', reason);
 });
 
 server.listen(port, () => {

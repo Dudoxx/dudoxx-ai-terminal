@@ -1,6 +1,6 @@
 {
   "scope": "ddx-terminal-bridge",
-  "status": "completed",
+  "status": "reconciled",
   "executionModel": "parallel",
   "branch": "feature/ddx-terminal-bridge",
   "parentCommit": "HEAD",

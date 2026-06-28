@@ -2,7 +2,8 @@
  * src/lib/term/xterm-client.ts — per-terminalId xterm.js client.
  *
  * Connects a WebSocket to /term/:terminalId (broker TermGateway), attaches
- * an xterm.js Terminal with webgl + fit addons, and wires bidirectional I/O:
+ * an xterm.js Terminal with the DOM renderer + fit/web-links addons, and wires
+ * bidirectional I/O:
  *
  *   Server → client: ServerFrame JSON → writes output bytes / applies layout.
  *   Client → server: onData(key) → InputFrame JSON → tmux send-keys -l.
@@ -18,7 +19,6 @@
  */
 
 import type { Terminal } from '@xterm/xterm';
-import type { FitAddon } from '@xterm/addon-fit';
 import type {
   ServerFrame,
   InputFrame,
@@ -66,6 +66,15 @@ export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'err
 export interface XtermClientCallbacks {
   onStateChange: (state: ConnectionState) => void;
   onData: (data: string) => void;
+  /**
+   * Called after the WS auto-reconnects following a drop (e.g. the broker
+   * restarted). The page should re-fetch the terminal snapshot and return its
+   * text so the just-reconnected socket can repaint the current frame before
+   * live output resumes — mirroring the tab-switch resubscribe+snapshot contract.
+   * Optional: if absent, reconnect still restores the live stream, just without
+   * a snapshot repaint.
+   */
+  onReconnect?: () => Promise<string>;
 }
 
 /**
@@ -80,10 +89,26 @@ export interface XtermClientCallbacks {
  */
 export class XtermClient {
   private terminal: Terminal | null = null;
-  private fitAddon: FitAddon | null = null;
   private ws: WebSocket | null = null;
   private disposed = false;
-  private resizeObserver: ResizeObserver | null = null;
+
+  /** Reconnect backoff state — reset to 0 on every successful open. */
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Max reconnect delay (ms). Backoff is 2^n * 250ms, capped here, + jitter. */
+  private static readonly RECONNECT_MAX_MS = 8_000;
+  private static readonly RECONNECT_BASE_MS = 250;
+  private static readonly RECONNECT_MAX_ATTEMPTS = 60; // ~ several minutes of retry
+
+  /**
+   * Canonical terminal grid — MUST match the broker's pinned tmux session size
+   * (`set-option -g default-size 120x30`, see ddx-term-broker CLAUDE.md). The
+   * client renders at exactly this grid so cursor-relative escapes from the shell
+   * resolve identically on both sides. If the broker default-size changes, change
+   * these together.
+   */
+  private static readonly COLS = 120;
+  private static readonly ROWS = 30;
 
   constructor(
     private readonly terminalId: TerminalId,
@@ -95,20 +120,30 @@ export class XtermClient {
   async connect(): Promise<void> {
     if (this.disposed) return;
 
-    // Lazy-import the heavy xterm modules (client-only, no SSR).
+    // Lazy-import the xterm modules (client-only, no SSR). We deliberately do NOT
+    // load @xterm/addon-webgl: in this embedded-Chrome / GPU context the WebGL
+    // renderer silently painted the background but no glyphs (blank pane), and
+    // the mid-stream WebGL→DOM fallback caused live-keystroke echo artifacts. The
+    // DOM renderer (xterm's default) renders correctly and is plenty fast for an
+    // interactive shell — pin it and delete the whole renderer-swap bug class.
     const [
       { Terminal },
-      { FitAddon },
-      { WebglAddon },
       { WebLinksAddon },
     ] = await Promise.all([
       import('@xterm/xterm'),
-      import('@xterm/addon-fit'),
-      import('@xterm/addon-webgl'),
       import('@xterm/addon-web-links'),
     ]);
 
     const term = new Terminal({
+      // The BROKER owns canonical dimensions (tmux session pinned at COLS×ROWS).
+      // The client MUST render at the SAME grid — never fit-to-container — or the
+      // shell's cursor-relative redraws (zsh line editing computes moves like
+      // ESC[21D against ITS column count) land at the wrong column in a
+      // differently-sized client grid, garbling live typing. Snapshot (absolute
+      // positioning) would still look right, but interactive editing breaks. So
+      // we fix the grid to the broker's dims and do NOT renegotiate on resize.
+      cols: XtermClient.COLS,
+      rows: XtermClient.ROWS,
       cursorBlink: true,
       fontFamily: '"JetBrains Mono", "Fira Code", monospace',
       fontSize: 14,
@@ -121,38 +156,19 @@ export class XtermClient {
       scrollback: 5000,
     });
 
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
 
-    try {
-      const webgl = new WebglAddon();
-      // WebGL may fail on some systems — fall back gracefully.
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {
-      // Canvas renderer used as fallback — no action needed.
-    }
-
+    // Open into the DOM at the fixed broker grid. DOM renderer only — no WebGL,
+    // no FitAddon: the grid is pinned to match the broker, not the container.
     term.open(this.container);
-    fitAddon.fit();
 
     this.terminal = term;
-    this.fitAddon = fitAddon;
 
     // Wire user keystrokes → InputFrame → WS.
     term.onData((data: string) => {
       this.sendInput(data);
       this.callbacks.onData(data);
     });
-
-    // Keep xterm sized to the container.
-    this.resizeObserver = new ResizeObserver(() => {
-      if (!this.disposed) {
-        fitAddon.fit();
-      }
-    });
-    this.resizeObserver.observe(this.container);
 
     this.openWebSocket();
   }
@@ -161,23 +177,27 @@ export class XtermClient {
    * Paint a snapshot text into the terminal before the first live WS frame.
    * Call immediately after connect() returns and the snapshot fetch resolves
    * (RESPONSIVENESS §2.8 — tab switch = resubscribe + snapshot, not reconnect).
+   *
+   * The broker snapshot comes from `tmux capture-pane -p`, which joins rows with
+   * bare LF (`\n`) and no CR. xterm needs CRLF to return the cursor to column 0 —
+   * writing bare LF moves DOWN without returning LEFT, producing a right-shifted
+   * "staircase". Normalize lone LF → CRLF (without doubling an existing CR) so each
+   * snapshot line starts at column 0. Live `%output` frames already carry real CR.
    */
   restoreSnapshot(snapshotText: string): void {
     if (this.terminal && snapshotText) {
-      this.terminal.write(snapshotText);
+      const normalized = snapshotText.replace(/\r?\n/g, '\r\n');
+      this.terminal.write(normalized);
     }
   }
 
-  /** Fit xterm to the current container size (call after layout changes). */
-  fit(): void {
-    this.fitAddon?.fit();
-  }
-
-  /** Tear down the WS, xterm instance, and resize observer. */
+  /** Tear down the WS and xterm instance. */
   dispose(): void {
     this.disposed = true;
-    this.resizeObserver?.disconnect();
-    this.resizeObserver = null;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
 
     // 3 = CLOSED numeric constant (WebSocket.CLOSED may be absent on test stubs).
     if (this.ws && this.ws.readyState !== 3) {
@@ -187,7 +207,6 @@ export class XtermClient {
 
     this.terminal?.dispose();
     this.terminal = null;
-    this.fitAddon = null;
   }
 
   // ── private ────────────────────────────────────────────────────────────────
@@ -200,27 +219,68 @@ export class XtermClient {
     this.ws = ws;
 
     ws.onopen = () => {
-      if (!this.disposed) {
-        this.callbacks.onStateChange('connected');
+      if (this.disposed) return;
+      const reconnected = this.reconnectAttempts > 0;
+      this.reconnectAttempts = 0;
+      this.callbacks.onStateChange('connected');
+      // After a reconnect (broker came back), repaint the current frame via the
+      // page's snapshot fetch so the user sees up-to-date state, not a stale or
+      // blank pane, before live output resumes.
+      if (reconnected && this.callbacks.onReconnect) {
+        // Repaint the current frame via the page's snapshot fetch (routed through
+        // restoreSnapshot for CRLF normalization) so the reconnect shows live
+        // state, not a stale grid, before live output resumes.
+        void this.callbacks
+          .onReconnect()
+          .then((snapshot) => {
+            if (!this.disposed && snapshot) this.restoreSnapshot(snapshot);
+          })
+          .catch(() => { /* snapshot fetch failed — live stream still resumes */ });
       }
     };
 
     ws.onclose = () => {
-      if (!this.disposed) {
-        this.callbacks.onStateChange('disconnected');
-      }
+      if (this.disposed) return;
+      this.callbacks.onStateChange('disconnected');
+      this.scheduleReconnect();
     };
 
     ws.onerror = () => {
-      if (!this.disposed) {
-        this.callbacks.onStateChange('error');
-      }
+      if (this.disposed) return;
+      this.callbacks.onStateChange('error');
+      // 'error' is followed by 'close'; reconnect is scheduled there. No-op here.
     };
 
     ws.onmessage = (event: MessageEvent<string>) => {
       if (this.disposed) return;
       this.handleServerFrame(event.data);
     };
+  }
+
+  /**
+   * Schedule a WS reconnect with exponential backoff + jitter. Triggered when the
+   * socket closes for any reason other than an intentional dispose() (e.g. the
+   * broker restarted). Each attempt waits min(2^n · base, max) ms plus up to one
+   * base interval of random jitter to avoid a thundering-herd reconnect storm if
+   * many terminals drop at once. Stops after RECONNECT_MAX_ATTEMPTS.
+   */
+  private scheduleReconnect(): void {
+    if (this.disposed || this.reconnectTimer) return;
+    if (this.reconnectAttempts >= XtermClient.RECONNECT_MAX_ATTEMPTS) return;
+
+    const exp = Math.min(
+      XtermClient.RECONNECT_BASE_MS * 2 ** this.reconnectAttempts,
+      XtermClient.RECONNECT_MAX_MS,
+    );
+    const jitter = Math.floor(Math.random() * XtermClient.RECONNECT_BASE_MS);
+    const delay = exp + jitter;
+    this.reconnectAttempts += 1;
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.disposed) return;
+      this.openWebSocket();
+    }, delay);
   }
 
   private handleServerFrame(raw: string): void {
@@ -241,9 +301,9 @@ export class XtermClient {
         break;
 
       case 'layout-change':
-        // The broker pinned the session size; we fit xterm to the container
-        // independently. Trigger a fit to stay aligned.
-        this.fitAddon?.fit();
+        // The broker pins the session size and the client grid is fixed to match
+        // (COLS×ROWS). We never renegotiate dimensions, so there is nothing to do
+        // here — the grids stay aligned by construction.
         break;
 
       case 'window-add':

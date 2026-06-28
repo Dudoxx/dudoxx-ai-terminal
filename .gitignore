@@ -42,3 +42,6 @@ __pycache__/
 
 # npm auth (never commit — CI injects via setup-node)
 .npmrc
+
+# Claude Code inline-paste bloat snapshots (machine-local, triage scratch)
+.claude-bloat-snapshots/

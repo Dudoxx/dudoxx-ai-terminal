@@ -86,6 +86,29 @@ describe('parseControlModeLine › %output', () => {
     if (result.frame.type !== 'output') return;
     expect(result.frame.data).toBe('line one\tline two  end');
   });
+
+  it('decodes tmux octal escapes (\\033, \\015) into real control bytes', () => {
+    // tmux -CC %output encodes ESC as \033, CR as \015 — xterm needs the raw
+    // bytes or it renders the escapes as literal text (blank/garbled pane bug).
+    const line = '%output %1 \\033[0mhi\\015';
+    const result = parseControlModeLine(line, resolvers);
+
+    expect(result.kind).toBe('frame');
+    if (result.kind !== 'frame') return;
+    if (result.frame.type !== 'output') return;
+    // \033 → ESC (\x1b), \015 → CR (\r)
+    expect(result.frame.data).toBe('\x1b[0mhi\r');
+  });
+
+  it('decodes an escaped literal backslash (\\\\) to a single backslash', () => {
+    const line = '%output %1 a\\\\b';
+    const result = parseControlModeLine(line, resolvers);
+
+    expect(result.kind).toBe('frame');
+    if (result.kind !== 'frame') return;
+    if (result.frame.type !== 'output') return;
+    expect(result.frame.data).toBe('a\\b');
+  });
 });
 
 describe('parseControlModeLine › %layout-change', () => {
