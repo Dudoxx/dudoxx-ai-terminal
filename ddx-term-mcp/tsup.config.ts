@@ -11,12 +11,21 @@
  */
 import { defineConfig } from 'tsup';
 import { resolve } from 'node:path';
+import { createRequire } from 'node:module';
+
+// Read the package version at build time so the server's self-reported version
+// always matches package.json (never hardcode it in server.ts — it drifts).
+const pkg = createRequire(import.meta.url)('./package.json') as { version: string };
 
 export default defineConfig({
   entry: { server: 'src/server.ts' },
   format: ['esm'],
   target: 'node20',
   platform: 'node',
+  // Inject the version as a build-time constant consumed by server.ts.
+  define: {
+    __PKG_VERSION__: JSON.stringify(pkg.version),
+  },
   // Resolve @ddx/term-contract to its TS SOURCE (not its compiled dist) so tsup
   // compiles it fresh as ESM. Bundling the contract's built dist/esm pulled in
   // emitted `require("zod/v4")` calls that fail under ESM (Dynamic require error).

@@ -33,6 +33,15 @@ import { AllowList } from './allow-list.js';
 import { loadConfig, type ToolContext } from './context.js';
 import { ReadCursor } from './read-cursor.js';
 import { toErrorBody } from './errors.js';
+
+/**
+ * Server version. Injected at build time by tsup `define` from package.json
+ * (`__PKG_VERSION__`). Falls back to '0.0.0-dev' under tsx/dev where define is
+ * absent — never hardcode a literal here (it drifts from package.json on bump).
+ */
+declare const __PKG_VERSION__: string | undefined;
+const SERVER_VERSION =
+  typeof __PKG_VERSION__ === 'string' ? __PKG_VERSION__ : '0.0.0-dev';
 import { buildResolver } from './resolver-factory.js';
 import { TmuxClient } from './tmux/tmux.client.js';
 import { TERM_TOOL_DESCRIPTIONS, dispatch } from './tools/registry.js';
@@ -50,7 +59,7 @@ export function buildContext(env: NodeJS.ProcessEnv): ToolContext {
 /** Build a low-level MCP Server wired to the term verbs. */
 export function buildServer(ctx: ToolContext): Server {
   const server = new Server(
-    { name: 'ddx-term-mcp', version: '0.1.0' },
+    { name: 'ddx-term-mcp', version: SERVER_VERSION },
     {
       capabilities: { tools: {} },
       instructions:

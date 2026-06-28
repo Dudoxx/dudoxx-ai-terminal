@@ -1,5 +1,13 @@
 # @dudoxx/ddx-term-mcp
 
+## 0.1.3
+
+### Patch Changes
+
+- Stamp the MCP server's self-reported version from package.json at build time
+  (tsup `define` → `__PKG_VERSION__`). Fixes serverInfo.version reporting a stale
+  hardcoded 0.1.0 regardless of the published version.
+
 ## 0.1.2
 
 ### Patch Changes
