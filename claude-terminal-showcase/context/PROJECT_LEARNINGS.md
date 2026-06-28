@@ -22,3 +22,10 @@
   2026-06-28 · [GENERAL] · PITFALL · Forwarding raw octal-encoded tmux output to xterm.js caused data loss; decode it first.
   2026-06-28 · [GENERAL] · RULE · Poll the terminal list every 2 seconds to ensure agent-created terminals appear live.
   2026-06-28 · [GENERAL] · DISCOVERY · The `DDX_TERM_BROKER_URL` must include the `/api/v1` broker prefix.
+
+- 2026-06-28 · 8a583d3 · domains:  meta. Net-new lessons: 5.
+  2026-06-28 · [GENERAL] · PITFALL · Strip trailing CR from PTY output to prevent garbled terminal lines.
+  2026-06-28 · [GENERAL] · RULE · Decode tmux octal escapes (\\033, \\015) to raw control bytes for xterm.
+  2026-06-28 · [GENERAL] · RULE · Decode escaped literal backslashes (\\\\) to single backslashes.
+  2026-06-28 · [GENERAL] · DISCOVERY · npm package.json version is used to stamp serverInfo.version at build.
+  2026-06-28 · [GENERAL] · DISCOVERY · npm strips data URIs, host logos via raw.githubusercontent.com.

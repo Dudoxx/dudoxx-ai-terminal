@@ -26,3 +26,12 @@
   2026-06-28 · [META] · DISCOVERY · npm strips data URIs from package.json, host logos elsewhere.
   2026-06-28 · [META] · PITFALL · Don't forget to include the /api/v1 broker prefix in DDX_TERM_BROKER_URL.
   2026-06-28 · [META] · DISCOVERY · tmux -CC %output encodes ESC as \033 and CR as \015; xterm needs raw bytes.
+
+- 2026-06-28 · 5b37f8b · domains:  term-broker term-mcp term-web meta. Net-new lessons: 7.
+  2026-06-28 · [TERM-BROKER] · PITFALL · Don't rely on `tmux -CC attach` to manage session state; use a separate registry for reconciliation.
+  2026-06-28 · [TERM-BROKER] · RULE · Ensure terminal session destruction is idempotent to prevent race conditions.
+  2026-06-28 · [TERM-WEB] · PITFALL · Polling for terminal list updates is necessary for agent-created terminals to appear live.
+  2026-06-28 · [TERM-WEB] · RULE · Use `noServer: true` for `ws.Server` when integrating with an existing HTTP server.
+  2026-06-28 · [TERM-WEB] · DISCOVERY · WebSocket frames and input require explicit end-to-end handling for live terminal functionality.
+  2026-06-28 · [TERM-MCP] · RULE · The `DDX_TERM_BROKER_URL` must include the `/api/v1` broker prefix.
+  2026-06-28 · [GENERAL] · RULE · Make `TermListEntry.active` optional with a default of `false` for flexibility.
