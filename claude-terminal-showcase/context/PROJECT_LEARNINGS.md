@@ -29,3 +29,9 @@
   2026-06-28 · [GENERAL] · RULE · Decode escaped literal backslashes (\\\\) to single backslashes.
   2026-06-28 · [GENERAL] · DISCOVERY · npm package.json version is used to stamp serverInfo.version at build.
   2026-06-28 · [GENERAL] · DISCOVERY · npm strips data URIs, host logos via raw.githubusercontent.com.
+
+- 2026-06-29 · 0646dd0 · domains:  meta. Net-new lessons: 4.
+  2026-06-29 · [GENERAL] · PITFALL · Manually set `DDX_TERM_BROKER_URL` must include `/api/v1` prefix or registry resolution fails.
+  2026-06-29 · [GENERAL] · RULE · Use `.env` files for configuration overrides, respecting precedence: MCP client, project-local, global.
+  2026-06-29 · [GENERAL] · RULE · Default to high port ranges (e.g., 133XX) for services to avoid conflicts with common development ports.
+  2026-06-29 · [GENERAL] · DISCOVERY · `dotenv` package loads `.env` files for standalone `pnpm dev` paths in broker and web.

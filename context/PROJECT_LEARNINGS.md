@@ -43,3 +43,9 @@
   2026-06-28 · [TERM-WEB] · RULE · Centralize appearance logic (themes, fonts, sizes) in a dedicated module (`appearance.ts`).
   2026-06-28 · [TERM-WEB] · DISCOVERY · xterm's `ITheme` cannot parse OKLCH; raw hex is an acceptable exemption for custom themes.
   2026-06-28 · [GENERAL] · RULE · Document pty-leak prevention strategies in invariants for future reference.
+
+- 2026-06-28 · 0646dd0 · domains:  term-broker term-mcp term-web. Net-new lessons: 4.
+  2026-06-28 · [TERM-BROKER,TERM-WEB] · PITFALL · Manually set DDX_TERM_BROKER_URL must include /api/v1 prefix.
+  2026-06-28 · [GENERAL] · RULE · Use high port bands (e.g., 133XX) to avoid dev server collisions.
+  2026-06-28 · [TERM-MCP] · RULE · Load .env files early in the MCP to resolve ports before spawning.
+  2026-06-28 · [GENERAL] · RULE · Document environment variable precedence clearly for users.
