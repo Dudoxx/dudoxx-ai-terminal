@@ -11,7 +11,7 @@
  * Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>
  */
 
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,13 +54,36 @@ export const WEB_LOCK_PATH = join(DDX_TERM_DIR, 'web.lock');
  * (src/supervisor/paths.ts → src/).  Tests inject their own paths via deps;
  * the constants below are only used by the real spawn path.
  */
-const BUNDLE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+/**
+ * The directory that CONTAINS broker/ and web/ at runtime. This differs by layout:
+ *   - published bundle: tsup flattens everything into dist/server.js, so this file's
+ *     code runs from dist/ and broker/ + web/ are SIBLINGS → bundle dir = dirname(server.js).
+ *   - dev/tsx/vitest: this file runs from src/supervisor/paths.ts, one level below src/;
+ *     there is no real broker/ there (tests inject paths via deps).
+ * The old `resolve(dirname, '..')` assumed a supervisor/ subdir depth that tsup erases,
+ * so in the bundle it overshot to the PACKAGE ROOT and spawned .../broker/main.js
+ * (nonexistent) instead of .../dist/broker/main.js. We now probe: prefer the sibling
+ * layout (bundle), fall back to the parent layout (source), so both resolve correctly.
+ */
+function resolveBundleDir(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  // Bundle (flat): broker/ is a sibling of server.js in `here`.
+  if (existsSync(join(here, 'broker', 'main.js'))) return here;
+  // Source layout: broker/ lives one level up (here === src/supervisor → src/).
+  const parent = resolve(here, '..');
+  if (existsSync(join(parent, 'broker', 'main.js'))) return parent;
+  // Neither exists (e.g. unbuilt tree under test) — default to `here`; tests inject
+  // their own paths via deps, so the physical absence does not matter.
+  return here;
+}
 
-/** Resolved path to dist/broker/main.js (relative to this file's bundle dir). */
+const BUNDLE_DIR = resolveBundleDir();
+
+/** Resolved path to <bundle>/broker/main.js. */
 export const BROKER_ENTRY = join(BUNDLE_DIR, 'broker', 'main.js');
 
 /**
- * Resolved path to dist/web/.next/standalone/ddx-term-web/server.mjs.
+ * Resolved path to <bundle>/web/.next/standalone/ddx-term-web/server.mjs.
  * server.mjs lives inside the standalone app dir so next + sibling node_modules
  * resolve naturally without extra injection.
  */

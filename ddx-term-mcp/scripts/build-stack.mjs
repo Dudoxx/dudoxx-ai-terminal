@@ -176,10 +176,14 @@ step('Step 3 — write dist/broker/package.json (type: commonjs) + dist/package.
 const brokerPkgJson = JSON.parse(
   readFileSync(join(REPO_ROOT, 'ddx-term-broker', 'package.json'), 'utf8'),
 );
-// Write broker identity one level up (dist/package.json) so main.js `../package.json` resolves
+// Write broker identity one level up (dist/package.json) so main.js `../package.json` resolves.
+// `type: module` matches the ESM server.js that sits in this same dir — without it Node
+// logs MODULE_TYPELESS_PACKAGE_JSON and reparses server.js as ESM at a perf cost every boot.
+// The broker's own dist/broker/package.json declares `type: commonjs` and overrides this for
+// the broker subtree, so the CJS main.js is unaffected.
 writeFileSync(
   join(DIST, 'package.json'),
-  JSON.stringify({ name: brokerPkgJson.name, version: brokerPkgJson.version, description: brokerPkgJson.description }, null, 2) + '\n',
+  JSON.stringify({ name: brokerPkgJson.name, version: brokerPkgJson.version, description: brokerPkgJson.description, type: 'module' }, null, 2) + '\n',
 );
 // Write CJS module-type marker inside dist/broker/ (overrides the MCP "type":"module" scope)
 writeFileSync(

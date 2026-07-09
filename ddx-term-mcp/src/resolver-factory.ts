@@ -55,7 +55,13 @@ const globalFetch: FetchLike = async (input, init) => {
 export function buildResolver(env: NodeJS.ProcessEnv, tmux: TmuxClient, fetchImpl: FetchLike = globalFetch): RegistryResolver {
   const brokerUrl = env['DDX_TERM_BROKER_URL'];
   if (brokerUrl !== undefined && brokerUrl.length > 0) {
-    return new BrokerRestResolver(brokerUrl.replace(/\/$/, ''), fetchImpl);
+    // The broker mounts every REST route under a global `/api/v1` prefix
+    // (ddx-term-broker main.ts: app.setGlobalPrefix('api/v1')). DDX_TERM_BROKER_URL
+    // carries only the host:port, so we append the API base here — otherwise every
+    // resolver call hits `/terminals` and gets a 404. Appending once at construction
+    // means all four REST call sites inherit the prefix.
+    const apiBase = `${brokerUrl.replace(/\/$/, '')}/api/v1`;
+    return new BrokerRestResolver(apiBase, fetchImpl);
   }
   return new LocalMapResolver(tmux, new TerminalMap());
 }

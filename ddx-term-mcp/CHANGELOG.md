@@ -1,5 +1,31 @@
 # @dudoxx/ddx-term-mcp
 
+## 0.2.2
+
+### Patch Changes
+
+- Fix three production-only defects that broke the supervised stack launch (all
+  missed by unit tests, which inject paths/fetch via deps and never exercise the
+  real bundle layout):
+
+  1. **Broker spawn path** — the supervisor resolved the bundled broker via
+     `resolve(dirname, '..')`, which assumed a `supervisor/` subdir depth that tsup
+     flattens away. In the published bundle it overshot to the package root and
+     spawned a nonexistent `<root>/broker/main.js`, so the broker never came up.
+     `paths.ts` now probes for the sibling `broker/main.js` (bundle) and falls back
+     to the parent layout (source), so both resolve.
+  2. **REST prefix 404** — the agent-channel BrokerRestResolver called `/terminals`,
+     but the broker mounts every route under `app.setGlobalPrefix('api/v1')`, so
+     every terminal op 404'd. The resolver factory now appends `/api/v1` once.
+  3. **MODULE_TYPELESS warning** — `dist/package.json` lacked `type: module`, so
+     Node reparsed the ESM `server.js` at a per-boot perf cost. build-stack now
+     writes `type: module` (the broker's own `dist/broker/package.json` keeps
+     `type: commonjs` and overrides for its subtree).
+
+  Validated end-to-end against the real bundle: production broker + web boot, an
+  interactive Python REPL runs, and a python http.server launched in the shared
+  terminal serves HTTP 200 with request logging visible in the shared state.
+
 ## 0.2.1
 
 ### Patch Changes
