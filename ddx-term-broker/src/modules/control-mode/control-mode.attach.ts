@@ -23,7 +23,20 @@ import type { ServerFrame, WindowId, TerminalId } from '@ddx/term-contract';
 
 const SESSION_NAME = process.env['DDX_TERM_SESSION'] ?? 'ddx-shared';
 const SOCKET_PATH = process.env['DDX_TERM_SOCKET'] ?? '/tmp/ddx-term.sock';
-const RECONNECT_DELAY_MS = 2000;
+
+/** Base reconnect delay (ms); grows with exponential backoff up to the cap. */
+const RECONNECT_BASE_DELAY_MS = 2000;
+/** Ceiling for a single backoff wait (ms) — avoids multi-minute silent stalls. */
+const RECONNECT_MAX_DELAY_MS = 30_000;
+/**
+ * Max consecutive attach failures before the loop gives up. A persistently
+ * failing `pty.spawn` (e.g. a missing native `pty.node` in a bundled deploy)
+ * would otherwise retry every 2s FOREVER, leaking a pty per cycle until macOS
+ * exhausts `kern.tty.ptmx_max` (511) and NO process can allocate a pty. Mirrors
+ * the web client's RECONNECT_MAX_ATTEMPTS=60 (xterm-client.ts). A clean exit
+ * (tmux killed / session gone) resets the counter — only unbroken failures count.
+ */
+const RECONNECT_MAX_ATTEMPTS = 60;
 
 /**
  * Resolve the tmux binary to an ABSOLUTE path. node-pty's posix_spawnp does not
@@ -53,6 +66,8 @@ export class ControlModeAttach implements OnModuleDestroy {
   private resolvers: FrameResolvers | null = null;
   private stopped = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Consecutive failed attach attempts; reset to 0 on a healthy data frame. */
+  private failedAttempts = 0;
 
   /**
    * Start the control-mode attach loop.
@@ -73,6 +88,7 @@ export class ControlModeAttach implements OnModuleDestroy {
   /** Stop the attach loop — called on module destroy. */
   stop(): void {
     this.stopped = true;
+    this.failedAttempts = 0;
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -124,14 +140,9 @@ export class ControlModeAttach implements OnModuleDestroy {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error(`pty.spawn(${TMUX_BIN}) failed: ${msg} — retrying in ${RECONNECT_DELAY_MS}ms`);
       this.proc = null;
-      if (!this.stopped) {
-        this.reconnectTimer = setTimeout(() => {
-          this.reconnectTimer = null;
-          this.spawn();
-        }, RECONNECT_DELAY_MS);
-      }
+      // Failed to even allocate the pty — count it and back off (or give up).
+      this.scheduleReconnect(`pty.spawn(${TMUX_BIN}) failed: ${msg}`);
       return;
     }
     this.proc = proc;
@@ -140,6 +151,10 @@ export class ControlModeAttach implements OnModuleDestroy {
 
     // node-pty merges stdout+stderr onto one data stream (it's a real terminal).
     proc.onData((chunk: string) => {
+      // First bytes prove the attach is live — a healthy attach clears the
+      // consecutive-failure counter so a later transient drop gets a fresh
+      // budget of RECONNECT_MAX_ATTEMPTS rather than inheriting stale count.
+      if (this.failedAttempts !== 0) this.failedAttempts = 0;
       lineBuf += chunk;
       let newline: number;
       // Process every complete line immediately — incremental, not buffered.
@@ -159,14 +174,46 @@ export class ControlModeAttach implements OnModuleDestroy {
     proc.onExit(({ exitCode, signal }) => {
       this.proc = null;
       if (this.stopped) return;
-      this.logger.warn(
-        `tmux -CC attach exited (code=${String(exitCode)} signal=${String(signal)}) — reconnecting in ${RECONNECT_DELAY_MS}ms`,
+      this.scheduleReconnect(
+        `tmux -CC attach exited (code=${String(exitCode)} signal=${String(signal)})`,
       );
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null;
-        this.spawn();
-      }, RECONNECT_DELAY_MS);
     });
+  }
+
+  /**
+   * Schedule the next attach attempt with a capped, exponentially-backed-off
+   * delay — or STOP the loop once RECONNECT_MAX_ATTEMPTS consecutive failures
+   * have accrued. This is the pty-leak circuit-breaker: without the cap a
+   * persistently-failing spawn retries every 2s forever, leaking one pty per
+   * cycle until the macOS pty pool is exhausted. Callers pass a reason string
+   * for the log line; they have already nulled `this.proc`.
+   */
+  private scheduleReconnect(reason: string): void {
+    if (this.stopped) return;
+
+    this.failedAttempts += 1;
+    if (this.failedAttempts >= RECONNECT_MAX_ATTEMPTS) {
+      this.logger.error(
+        `${reason} — giving up after ${RECONNECT_MAX_ATTEMPTS} consecutive failures. ` +
+          `Control-mode attach is DOWN; restart the broker once the underlying tmux/pty fault is fixed.`,
+      );
+      this.stopped = true;
+      return;
+    }
+
+    // Exponential backoff: 2s, 4s, 8s, … capped at RECONNECT_MAX_DELAY_MS.
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY_MS * 2 ** (this.failedAttempts - 1),
+      RECONNECT_MAX_DELAY_MS,
+    );
+    this.logger.warn(
+      `${reason} — reconnecting in ${delay}ms ` +
+        `(attempt ${this.failedAttempts}/${RECONNECT_MAX_ATTEMPTS})`,
+    );
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.spawn();
+    }, delay);
   }
 
   private handleLine(line: string): void {

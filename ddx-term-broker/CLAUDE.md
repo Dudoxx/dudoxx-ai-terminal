@@ -33,6 +33,15 @@ WebSocket. Default port **13330** (`DDX_TERM_BROKER_PORT`), host `127.0.0.1`
   a DETACHED session KILLS the tmux 3.6a server (production day-1 crash).
 - **NEVER** let a headless attach renegotiate the session smaller than the human's
   viewport (resize war) — the broker pins size and owns the canonical dimensions.
+- **Control-mode attach retry is BOUNDED** — `control-mode.attach.ts` caps consecutive
+  attach failures at `RECONNECT_MAX_ATTEMPTS=60` with exponential backoff (2s→30s),
+  resetting the counter on the first healthy data frame. A persistently-failing
+  `pty.spawn` (e.g. a missing native `pty.node` in a bad deploy) would otherwise retry
+  every 2s FOREVER, leaking one pty per cycle until macOS `ptmx_max`(511) is exhausted.
+  On give-up it logs + sets `stopped=true` (no timer re-fires). NEVER reintroduce an
+  uncapped/fixed-delay reconnect loop. The delivered MCP bundle carries the native
+  `pty.node` (`dist/broker/node_modules/node-pty/prebuilds/darwin-arm64/`) — verify it
+  survives `build:stack` after any node-pty version bump.
 - Per-terminalId WS fan-out only: a busy build in terminal A NEVER pushes frames
   to subscribers of terminal B (RESPONSIVENESS §2.8). Output is coalesced per
   terminal for flood control.

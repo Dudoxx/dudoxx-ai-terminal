@@ -1,5 +1,19 @@
 # @dudoxx/ddx-term-mcp
 
+## 0.2.1
+
+### Patch Changes
+
+- Fix a PTY-leak in the bundled broker's control-mode attach loop. On a persistent
+  `tmux -CC attach` spawn failure (e.g. a missing native `pty.node` in a bad deploy),
+  the broker retried every 2s forever, leaking one pty per cycle until macOS
+  `ptmx_max` (511) was exhausted and no process could allocate a pty. The reconnect
+  loop is now bounded (RECONNECT_MAX_ATTEMPTS=60) with exponential backoff (2s→30s),
+  resetting on the first healthy data frame and stopping cleanly on give-up. The
+  published bundle also carries the native `pty.node` prebuild so the broker starts
+  first-try. Verified end-to-end via a live browser-loop test: keystroke echo,
+  multi-terminal rendering, and human/agent shared-state parity all pass.
+
 ## 0.2.0
 
 ### Minor Changes
