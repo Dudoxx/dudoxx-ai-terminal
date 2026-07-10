@@ -20,6 +20,7 @@ import {
   Body,
   HttpCode,
   HttpStatus,
+  HttpException,
   PipeTransform,
   BadRequestException,
   type ArgumentMetadata,
@@ -27,6 +28,7 @@ import {
 import { ApiOperation, ApiTags, ApiParam, ApiBody } from '@nestjs/swagger';
 import { z } from 'zod/v4';
 import { TerminalService, type SnapshotResult } from './terminal.service';
+import { TerminalLimitError } from '../session/session.service';
 import type { TerminalDescriptor } from '@ddx/term-contract';
 
 /** Bound POST /terminals body — title is optional but capped at 64 chars. */
@@ -64,10 +66,19 @@ export class TerminalController {
   @Post()
   @ApiOperation({ summary: 'Create a new terminal (allocates a tmux window)' })
   @ApiBody({ schema: { type: 'object', properties: { title: { type: 'string', maxLength: 64 } } } })
-  create(
+  async create(
     @Body(new ZodPipe(CreateTerminalBodySchema)) body: CreateTerminalBody,
   ): Promise<TerminalDescriptor> {
-    return this.terminalService.create({ title: body.title });
+    try {
+      return await this.terminalService.create({ title: body.title });
+    } catch (err) {
+      // Cap reached → 429 Too Many Requests (retriable after a destroy). Other
+      // errors propagate to the global HttpExceptionFilter unchanged.
+      if (err instanceof TerminalLimitError) {
+        throw new HttpException(err.message, HttpStatus.TOO_MANY_REQUESTS);
+      }
+      throw err;
+    }
   }
 
   @Get()

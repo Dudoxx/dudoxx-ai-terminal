@@ -42,6 +42,18 @@ WebSocket. Default port **13330** (`DDX_TERM_BROKER_PORT`), host `127.0.0.1`
   uncapped/fixed-delay reconnect loop. The delivered MCP bundle carries the native
   `pty.node` (`dist/broker/node_modules/node-pty/prebuilds/darwin-arm64/`) — verify it
   survives `build:stack` after any node-pty version bump.
+- **Every pty master MUST be `.kill()`d before its reference is dropped** —
+  `disposeProc()` is the single deterministic release path, called (a) at the top of
+  `spawn()` before allocating a new pty, (b) in `onExit` for the exited pty, and (c) in
+  `stop()`. node-pty does NOT free the `/dev/ptmx` master on process exit; setting
+  `this.proc = null` alone leaks the fd until a GC finalizer that effectively never runs
+  in a long-lived low-GC process. The `RECONNECT_MAX_ATTEMPTS=60` cap does NOT cover this:
+  it counts only *attach failures*, so a healthy `success→exit→reconnect` churn resets the
+  counter every cycle and reconnects forever — each un-reaped exit then leaks one master.
+  This was a real production defect (a stale broker accumulated 510 masters over 11 days,
+  exhausting the host pty pool and killing `zpty`/shell autosuggest machine-wide). Regression
+  guard: `control-mode.attach.spec.ts` asserts `liveMasters <= 1` across a 100-cycle churn.
+  NEVER null `this.proc` without routing through `disposeProc()`.
 - Per-terminalId WS fan-out only: a busy build in terminal A NEVER pushes frames
   to subscribers of terminal B (RESPONSIVENESS §2.8). Output is coalesced per
   terminal for flood control.

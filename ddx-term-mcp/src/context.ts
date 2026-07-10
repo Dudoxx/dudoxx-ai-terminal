@@ -48,7 +48,11 @@ export function loadConfig(env: NodeJS.ProcessEnv): TermConfig {
     defaultTerminal: toTerminalId(env['DDX_TERM_DEFAULT'] ?? 't01'),
     allowlistPath: env['DDX_TERM_ALLOWLIST'],
     maxReadLines: intOr(env['DDX_TERM_MAX_READ_LINES'], 2000),
-    maxTerminals: intOr(env['DDX_TERM_MAX_TERMINALS'], 16),
+    // 10 = the canonical pty-safe ceiling (matches the broker's MAX_TERMINALS).
+    // Each terminal holds a shell pty; unbounded growth exhausts the macOS pty
+    // pool (ptmx_max=511). The broker enforces the same cap as the source of
+    // truth — this MCP-side guard fails fast before the REST round-trip.
+    maxTerminals: intOr(env['DDX_TERM_MAX_TERMINALS'], 10),
   };
 }
 

@@ -40,6 +40,21 @@ import {
 /** Injection token for the exec runner (replaced in tests). */
 export const EXEC_RUNNER = 'EXEC_RUNNER';
 
+/**
+ * Thrown by `createTerminal` when the concurrent-terminal cap is reached.
+ * The controller maps this to HTTP 429 (Too Many Requests). A dedicated type
+ * lets the caller distinguish "cap reached, destroy one" from a real tmux fault.
+ */
+export class TerminalLimitError extends Error {
+  constructor(
+    readonly limit: number,
+    readonly current: number,
+  ) {
+    super(`terminal limit reached (${current}/${limit}) — destroy one first`);
+    this.name = 'TerminalLimitError';
+  }
+}
+
 /** Return type of an exec call. */
 export interface ExecResult {
   stdout: string;
@@ -56,6 +71,21 @@ const SESSION_NAME = process.env['DDX_TERM_SESSION'] ?? 'ddx-shared';
 const SOCKET_PATH = process.env['DDX_TERM_SOCKET'] ?? '/tmp/ddx-term.sock';
 const SESSION_COLS = 120;
 const SESSION_ROWS = 30;
+
+/**
+ * Hard ceiling on concurrent terminals (tmux windows) the broker will allocate.
+ * This is the CANONICAL cap — the broker owns the registry, so enforcing here
+ * bounds BOTH channels (MCP `POST /terminals` AND the human web UI), which the
+ * MCP-side `DDX_TERM_MAX_TERMINALS` guard alone could not (the web path bypassed
+ * it). Each terminal holds a shell pty; an unbounded count exhausts the macOS
+ * pty pool (`kern.tty.ptmx_max`=511) until NO process can allocate a pty
+ * (Ghostty "requires a pty device to launch"). Default 10; override via env.
+ */
+const MAX_TERMINALS = ((): number => {
+  const raw = process.env['DDX_TERM_MAX_TERMINALS'];
+  const n = raw !== undefined ? Number.parseInt(raw, 10) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : 10;
+})();
 
 /** tmux argv builder — always uses -S $SOCK to target our isolated socket. */
 function tmux(...args: string[]): string[] {
@@ -165,6 +195,14 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
    * Returns the new descriptor with SNAPSHOT pids (re-read after creation).
    */
   async createTerminal(title?: string): Promise<TerminalDescriptor> {
+    // Cap guard FIRST — before tmux allocates a window+pty. Bounds both the MCP
+    // and web channels (this is the canonical registry). Exceeding the pty pool
+    // is a hard failure that breaks the whole machine, so we refuse early rather
+    // than leak. The caller (controller) maps this to HTTP 429.
+    if (this.registry.size >= MAX_TERMINALS) {
+      throw new TerminalLimitError(MAX_TERMINALS, this.registry.size);
+    }
+
     // new-window: -d = detached (don't switch to it), -P -F = print window id
     const { stdout } = await this.exec('tmux', [
       ...tmux('new-window', '-t', SESSION_NAME, '-d', '-P', '-F', '#{window_id}'),

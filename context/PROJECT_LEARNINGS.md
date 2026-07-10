@@ -49,3 +49,12 @@
   2026-06-28 · [GENERAL] · RULE · Use high port bands (e.g., 133XX) to avoid dev server collisions.
   2026-06-28 · [TERM-MCP] · RULE · Load .env files early in the MCP to resolve ports before spawning.
   2026-06-28 · [GENERAL] · RULE · Document environment variable precedence clearly for users.
+
+- 2026-07-10 · 8b134eb · domains:  term-broker term-mcp meta. Net-new lessons: 7.
+  2026-07-10 · [TERM-BROKER] · PITFALL · Unbounded reconnects can exhaust PTY resources; cap retries and use exponential backoff.
+  2026-07-10 · [TERM-BROKER] · RULE · Implement a circuit breaker for persistent control-mode attach failures.
+  2026-07-10 · [TERM-BROKER] · DISCOVERY · `tmux kill-window` fails if the window ID is invalid.
+  2026-07-10 · [TERM-BROKER] · DISCOVERY · `term_signal` requires a valid signal name, not undefined.
+  2026-07-10 · [TERM-BROKER] · DISCOVERY · `PID_NOT_IN_TERMINAL` error occurs when a PID is not part of the specified terminal's process tree.
+  2026-07-10 · [TERM-MCP] · RULE · Use `.env` files for configuration overrides, respecting precedence.
+  2026-07-10 · [GENERAL] · PITFALL · Manually set `DDX_TERM_BROKER_URL` must include `/api/v1` prefix or registry resolution fails.

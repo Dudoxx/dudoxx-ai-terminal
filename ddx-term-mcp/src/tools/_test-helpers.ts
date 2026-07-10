@@ -68,7 +68,7 @@ export function makeConfig(overrides: Partial<TermConfig> = {}): TermConfig {
     defaultTerminal: toTerminalId('t01'),
     allowlistPath: undefined,
     maxReadLines: 2000,
-    maxTerminals: 16,
+    maxTerminals: 10,
     ...overrides,
   };
 }

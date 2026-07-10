@@ -93,10 +93,7 @@ export class ControlModeAttach implements OnModuleDestroy {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    if (this.proc) {
-      this.proc.kill();
-      this.proc = null;
-    }
+    this.disposeProc();
   }
 
   onModuleDestroy(): void {
@@ -105,8 +102,38 @@ export class ControlModeAttach implements OnModuleDestroy {
 
   // ── private ────────────────────────────────────────────────────────────────
 
+  /**
+   * Deterministically release the current pty master fd.
+   *
+   * node-pty allocates a REAL `/dev/ptmx` master per `pty.spawn`. Dropping the JS
+   * reference (`this.proc = null`) alone does NOT release that fd — it lingers until
+   * the GC *maybe* runs node-pty's finalizer, which under a long-lived low-GC-pressure
+   * process effectively never happens. Over a multi-day reconnect churn this leaks one
+   * master per cycle until macOS `kern.tty.ptmx_max` (511) is exhausted and NO process
+   * on the machine can allocate a pty (observed: a stale broker held 510 masters,
+   * killing `zpty`/shell autosuggest host-wide). `.kill()` is the only deterministic
+   * release. Idempotent — safe to call when `this.proc` is already null.
+   */
+  private disposeProc(): void {
+    if (!this.proc) return;
+    try {
+      this.proc.kill();
+    } catch {
+      // Already-exited pty throws EBADF/ESRCH on kill — the fd is gone, which is the
+      // outcome we want. Swallow so cleanup on the exit path never re-enters the loop.
+    }
+    this.proc = null;
+  }
+
   private spawn(): void {
     if (this.stopped) return;
+
+    // Reap any prior pty before allocating a new one. `spawn()` is re-entered from
+    // scheduleReconnect() after a successful-then-exited attach; without this the
+    // previous master fd leaks every reconnect cycle (the fd IS released in onExit
+    // below, but this is the belt-and-braces guard against any path that reaches
+    // spawn() with a live proc still assigned).
+    this.disposeProc();
 
     // tmux -f /dev/null -S $SOCK -CC attach-session -t ddx-shared -r
     // -r = read-only attach so we don't steal input from the human.
@@ -172,7 +199,12 @@ export class ControlModeAttach implements OnModuleDestroy {
     });
 
     proc.onExit(({ exitCode, signal }) => {
-      this.proc = null;
+      // Release the master fd of the pty that just exited BEFORE reconnecting.
+      // node-pty does not free the `/dev/ptmx` master on exit unless kill() runs;
+      // on a success→exit→reconnect churn this is the primary leak site (the loop
+      // never trips the failure-cap because a healthy data frame reset it to 0).
+      // disposeProc() is guarded against the already-exited EBADF and nulls this.proc.
+      if (this.proc === proc) this.disposeProc();
       if (this.stopped) return;
       this.scheduleReconnect(
         `tmux -CC attach exited (code=${String(exitCode)} signal=${String(signal)})`,
