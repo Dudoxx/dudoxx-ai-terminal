@@ -52,7 +52,9 @@ stay green. Every verb resolves `terminalId → windowId` and runs
 ## Env (MCP-SPEC §2)
 `DDX_TERM_SOCKET` (`/tmp/ddx-term.sock`) · `DDX_TERM_SESSION` (`ddx-shared`) ·
 `DDX_TERM_DEFAULT` (`t01`) · `DDX_TERM_ALLOWLIST` · `DDX_TERM_MAX_READ_LINES`
-(2000) · `DDX_TERM_MAX_TERMINALS` (16) · `DDX_TERM_BROKER_URL` (set →
+(2000) · `DDX_TERM_MAX_TERMINALS` (10 — the pty-safe ceiling, matches the
+broker's canonical `MAX_TERMINALS`; exceeding it returns HTTP 429) ·
+`DDX_TERM_BROKER_URL` (set →
 broker-attached; unset → standalone slug↔window map).
 
 ## Verification

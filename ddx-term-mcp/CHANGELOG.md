@@ -1,5 +1,28 @@
 # @dudoxx/ddx-term-mcp
 
+## 0.2.3
+
+### Patch Changes
+
+- Fix macOS PTY-pool exhaustion (`kern.tty.ptmx_max=511`) from two angles. A
+  long-lived broker could consume every pseudo-terminal on the host, breaking
+  `zpty`/shell autosuggest and any new terminal machine-wide (observed: one stale
+  broker held 510 `/dev/ptmx` masters).
+
+  1. **PTY master leak on reconnect** — the control-mode attach loop dropped each
+     exited `node-pty` via `this.proc = null` WITHOUT calling `.kill()`. node-pty
+     does not release the `/dev/ptmx` master on process exit, so every healthy
+     `success→exit→reconnect` cycle leaked one master. The `RECONNECT_MAX_ATTEMPTS`
+     failure cap never caught it (a healthy data frame resets the counter). A new
+     `disposeProc()` deterministically `.kill()`s the pty before every re-spawn, in
+     `onExit`, and in `stop()`. Regression-guarded by a 100-cycle churn spec
+     asserting at most one live master.
+
+  2. **Unbounded terminal count** — added a canonical `MAX_TERMINALS` cap (default
+     10, override via `DDX_TERM_MAX_TERMINALS`) at the broker registry, bounding
+     BOTH the MCP and human-web channels; exceeding it returns HTTP 429. The
+     MCP-side `maxTerminals` default lowered 16→10 to match.
+
 ## 0.2.2
 
 ### Patch Changes
