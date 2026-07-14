@@ -61,6 +61,21 @@
     "cancel": "Annuler",
     "confirmRename": "Enregistrer le nom",
     "confirmKill": "Confirmer la fermeture",
-    "renameLabel": "Renommer {title}"
+    "renameLabel": "Renommer {title}",
+    "notFound": "Ce terminal n'existe plus.",
+    "backToList": "Retour à la liste des terminaux",
+    "creating": "Création du terminal…",
+    "createError": "Impossible de créer le terminal.",
+    "list": {
+      "grid": "Vue grille",
+      "list": "Vue liste",
+      "timeline": "Vue chronologique",
+      "viewModeNav": "Vue de la liste des terminaux"
+    },
+    "breadcrumb": {
+      "nav": "Fil d'Ariane",
+      "root": "Terminaux",
+      "list": "Tous les terminaux"
+    }
   }
 }

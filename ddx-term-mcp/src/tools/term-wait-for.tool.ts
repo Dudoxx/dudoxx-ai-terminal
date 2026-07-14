@@ -33,6 +33,12 @@ export async function termWaitFor(ctx: ToolContext, input: TermWaitForInput): Pr
   const start = Date.now();
   let interval = MIN_INTERVAL_MS;
 
+  // INTENTIONAL non-reset: unlike term_snapshot (which resets the read-cursor
+  // to tail because "I've now seen the screen"), term_wait_for never touches
+  // ctx.cursor. A caller that follows this with term_read('last') gets the
+  // FULL scrollback since before the wait started — the "see everything that
+  // happened while I was waiting" UX is desired here, not a bug to fix.
+
   for (;;) {
     const grid = await ctx.tmux.capturePaneVisible(resolved.windowId, false);
     const matchedLine = grid.split('\n').find((line) => regex.test(line));

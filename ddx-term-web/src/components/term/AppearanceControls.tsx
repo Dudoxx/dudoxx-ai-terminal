@@ -23,6 +23,34 @@ import {
 } from '@/lib/term/appearance';
 import { useTermAppearance } from '@/lib/term/settings-store';
 
+/**
+ * Typed key maps for the `terminal.fonts.*` / `terminal.themes.*` namespaces —
+ * replaces the `t(... as never)` escape with a real keyof union so t() type
+ * checks against messages/en.json without any `any`/`never` bypass. Each
+ * registry `labelKey` MUST have a matching entry here (mirrors messages/*.json
+ * in lockstep — see appearance.ts's TERM_FONTS/TERM_THEMES).
+ */
+const FONT_LABEL_KEYS = {
+  jetbrains: 'fonts.jetbrains',
+  fira: 'fonts.fira',
+  menlo: 'fonts.menlo',
+  system: 'fonts.system',
+} as const satisfies Record<string, string>;
+
+const THEME_LABEL_KEYS = {
+  dudoxxNavy: 'themes.dudoxxNavy',
+  midnightBlack: 'themes.midnightBlack',
+  solarizedDark: 'themes.solarizedDark',
+  solarizedLight: 'themes.solarizedLight',
+  dracula: 'themes.dracula',
+  gruvboxDark: 'themes.gruvboxDark',
+  nord: 'themes.nord',
+  highContrast: 'themes.highContrast',
+} as const satisfies Record<string, string>;
+
+type FontLabelKey = keyof typeof FONT_LABEL_KEYS;
+type ThemeLabelKey = keyof typeof THEME_LABEL_KEYS;
+
 export function AppearanceControls(): React.JSX.Element {
   const t = useTranslations('terminal');
   const { appearance, setFontSize, setFontId, setThemeId, reset } = useTermAppearance();
@@ -91,7 +119,7 @@ export function AppearanceControls(): React.JSX.Element {
                     : 'bg-elevated text-foreground hover:bg-tab-hover',
                 ].join(' ')}
               >
-                {t(`fonts.${font.labelKey}` as never)}
+                {t(FONT_LABEL_KEYS[font.labelKey as FontLabelKey])}
               </button>
             );
           })}
@@ -135,7 +163,7 @@ export function AppearanceControls(): React.JSX.Element {
                   }}
                 />
                 <span className="truncate">
-                  {t(`themes.${theme.labelKey}` as never)}
+                  {t(THEME_LABEL_KEYS[theme.labelKey as ThemeLabelKey])}
                 </span>
               </button>
             );

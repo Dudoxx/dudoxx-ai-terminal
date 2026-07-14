@@ -61,6 +61,21 @@
     "cancel": "Cancel",
     "confirmRename": "Save name",
     "confirmKill": "Confirm kill",
-    "renameLabel": "Rename {title}"
+    "renameLabel": "Rename {title}",
+    "notFound": "This terminal no longer exists.",
+    "backToList": "Back to terminal list",
+    "creating": "Creating terminal…",
+    "createError": "Could not create terminal.",
+    "list": {
+      "grid": "Grid view",
+      "list": "List view",
+      "timeline": "Timeline view",
+      "viewModeNav": "Terminal list view"
+    },
+    "breadcrumb": {
+      "nav": "Breadcrumb",
+      "root": "Terminals",
+      "list": "All terminals"
+    }
   }
 }

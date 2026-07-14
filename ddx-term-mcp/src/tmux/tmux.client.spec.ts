@@ -18,14 +18,24 @@ const calls: Array<{ bin: string; args: string[] }> = [];
 // (bin, args) → stdout for multi-call walks (descendantPids' repeated pgrep -P).
 let nextStdout = '';
 let stdoutFor: ((bin: string, args: string[]) => string) | undefined;
+// When set, the NEXT execFile call rejects with this exit code (simulates
+// pgrep/ps exiting non-zero) instead of resolving with nextStdout/stdoutFor.
+let nextExitCode: number | undefined;
 
 vi.mock('node:child_process', () => ({
   execFile: (
     bin: string,
     args: string[],
-    cb: (err: Error | null, res: { stdout: string; stderr: string }) => void,
+    cb: (err: (Error & { code?: number }) | null, res: { stdout: string; stderr: string }) => void,
   ): void => {
     calls.push({ bin, args });
+    if (nextExitCode !== undefined) {
+      const code = nextExitCode;
+      nextExitCode = undefined;
+      const err = Object.assign(new Error(`Command failed`), { code, stderr: 'boom' });
+      cb(err, { stdout: '', stderr: 'boom' });
+      return;
+    }
     const stdout = stdoutFor !== undefined ? stdoutFor(bin, args) : nextStdout;
     cb(null, { stdout, stderr: '' });
   },
@@ -44,6 +54,7 @@ beforeEach(() => {
   calls.length = 0;
   nextStdout = '';
   stdoutFor = undefined;
+  nextExitCode = undefined;
 });
 
 describe('TmuxClient argv contract', () => {
@@ -127,6 +138,28 @@ describe('TmuxClient argv contract', () => {
     expect(pids).toEqual([39362, 39400]);
   });
 
+  it('childPids returns [] on pgrep exit 1 (no match — expected, not an error)', async () => {
+    nextExitCode = 1;
+    const pids = await client().childPids(38638);
+    expect(pids).toEqual([]);
+  });
+
+  it('childPids SURFACES a genuine fault (non-1 exit) as TmuxExecError, not []', async () => {
+    nextExitCode = 2;
+    await expect(client().childPids(38638)).rejects.toMatchObject({ name: 'TmuxExecError' });
+  });
+
+  it('psRows returns [] on ps exit 1 (no matching pids — expected)', async () => {
+    nextExitCode = 1;
+    const rows = await client().psRows([38638]);
+    expect(rows).toEqual([]);
+  });
+
+  it('psRows SURFACES a genuine fault (non-1 exit) as TmuxExecError, not []', async () => {
+    nextExitCode = 127; // e.g. ps binary missing
+    await expect(client().psRows([38638])).rejects.toMatchObject({ name: 'TmuxExecError' });
+  });
+
   it('descendantPids walks the FULL tree (children + grandchildren) via repeated pgrep -P', async () => {
     // Mock a 2-level tree: 100 → [200, 201]; 200 → [300]; 201, 300 → leaves.
     // Keyed by the `pgrep -P <pid>` argument so the BFS walk resolves per node.
@@ -148,6 +181,21 @@ describe('TmuxClient argv contract', () => {
   it('killPid execs kill -<signal> <pid>', async () => {
     await client().killPid('TERM', 39362);
     expect(calls[0]).toEqual({ bin: 'kill', args: ['-TERM', '39362'] });
+  });
+
+  it('newSession puts -f /dev/null BEFORE -S (tmux global-flag-precedes-socket constraint)', async () => {
+    await client().newSession(120, 30);
+    // First call is `new-session` itself; the second (set-option) goes through
+    // the normal `-S`-first tmux() path — only the FIRST call carries -f.
+    expect(calls[0]?.args).toEqual([
+      '-f', '/dev/null', '-S', SOCK, 'new-session', '-d', '-s', SESS, '-x', '120', '-y', '30',
+    ]);
+    expect(calls[1]?.args).toEqual(['-S', SOCK, 'set-option', '-g', 'default-size', '120x30']);
+  });
+
+  it('newSession SURFACES a genuine fault via the shared exec-wrap (TmuxExecError, DRY reuse)', async () => {
+    nextExitCode = 1;
+    await expect(client().newSession(120, 30)).rejects.toMatchObject({ name: 'TmuxExecError' });
   });
 
   it('every tmux call prefixes -S <socket> as the first two args', async () => {

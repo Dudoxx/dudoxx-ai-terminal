@@ -1,0 +1,58 @@
+{
+  "id": "006",
+  "shard": "06-mcp-hardening.md",
+  "subject": "MCP tmux-client hardening: un-swallow errors, DRY wrap, wait_for + term_ps semantics",
+  "category": "backend",
+  "agent": "ddx-term-mcp-specialist",
+  "depends_on": [],
+  "parallel_group": "A",
+  "readBeforeStart": [
+    "plans/terminal-ui-refactor/_invariants.md",
+    "ddx-term-mcp/CLAUDE.md"
+  ],
+  "skill_refs": [
+    "typescript-strict",
+    "nestjs-backend"
+  ],
+  "context_files": [
+    "plans/terminal-ui-refactor/_invariants.md",
+    "ddx-term-mcp/CLAUDE.md",
+    "findings/2026-07-14_terminal-ui-refactor/mcp-audit.md",
+    "ddx-term-mcp/src/tmux/tmux.client.ts",
+    "ddx-term-mcp/src/tools/term-wait-for.tool.ts",
+    "ddx-term-mcp/src/tools/term-ps.tool.ts"
+  ],
+  "context": "The MCP server is healthy; this is targeted hardening (no restructure). Four items from mcp-audit: (1) tmux.client.ts:279-282,331-333 swallow exec errors wholesale — distinguish pgrep/pattern exit-1 (no match, EXPECTED, return empty) from a genuine fault (surface as TmuxExecError). Inspect err.code: code===1 on pgrep/pattern-scan = no match; ENOENT / other codes = real fault. (2) tmux.client.ts:110-138 newSession has a duplicated TmuxExecError try/catch wrap — extract into a shared helper (e.g. execTmux/wrapExec) and reuse; KEEP the global-flag-precedes-`-S` constraint (tmux global flags must come before -S socket path or tmux errors). (3) term-wait-for.tool.ts — D3=document non-reset: do NOT reset the read-cursor to tail on match; ADD an inline comment explaining the intentional non-reset ('see everything since I started waiting' UX is desirable, unlike term_snapshot which tails). (4) term-ps.tool.ts:21 — D4=align: switch processes[] from depth-1 childPids to full descendantPids so grandchildren appear, matching term_signal's tree boundary; KEEP fgPid as the direct foreground child (unchanged meaning). Add/extend a spec asserting grandchildren appear in processes[]. INVARIANT: the MCP server NEVER holds a PTY — execFile tmux/ps/pgrep/kill only; no-pty.spec.ts guards it and MUST stay green. Do NOT restructure resolver/registry/dispatch; do NOT re-report the 3 fixed prod-launch bugs; no supervisor deep audit.",
+  "steps": [
+    "Read mcp-audit.md + the three target files to confirm the swallow sites, the duplicated wrap, and the childPids vs descendantPids helpers.",
+    "In tmux.client.ts at the two swallow sites, branch on err.code: treat code===1 from pgrep/pattern scans as 'no match' (return empty result) and re-throw everything else as TmuxExecError with context. Add a test for a genuine fault surfacing vs a no-match returning empty.",
+    "Extract the duplicated TmuxExecError try/catch in newSession (:110-138) into a shared exec-wrap helper; reuse it in newSession and the other call sites that copy the same block. Preserve the global-flag-before-`-S` ordering.",
+    "In term-wait-for.tool.ts add an inline comment documenting the INTENTIONAL non-reset of the read cursor on match (contrast with term_snapshot tailing); no behavior change.",
+    "In term-ps.tool.ts:21 switch the processes[] source from childPids (depth-1) to descendantPids (full tree); keep fgPid = direct foreground child. Update/add a spec asserting a grandchild PID appears in processes[].",
+    "Run mcp build + test; confirm no-pty.spec.ts is green."
+  ],
+  "files": {
+    "create": [],
+    "modify": [
+      "ddx-term-mcp/src/tmux/tmux.client.ts",
+      "ddx-term-mcp/src/tools/term-wait-for.tool.ts",
+      "ddx-term-mcp/src/tools/term-ps.tool.ts"
+    ],
+    "delete": []
+  },
+  "pitfalls": [
+    "The MCP server NEVER holds a PTY — execFile tmux/ps/pgrep/kill only; no-pty.spec.ts must stay green (repo invariant).",
+    "pgrep/pattern-scan exit code 1 means 'no match' (expected) — do NOT surface it as an error; only non-1 / ENOENT codes are genuine faults.",
+    "Keep the tmux global-flag-precedes-`-S` constraint when extracting the exec-wrap helper — reordering breaks tmux invocation.",
+    "term_ps: only processes[] goes full-tree (descendantPids); fgPid stays the direct foreground child (D4 — do not change fgPid meaning)."
+  ],
+  "validation": "pnpm --filter @dudoxx/ddx-term-mcp build && pnpm --filter @dudoxx/ddx-term-mcp test",
+  "acceptance_criteria": [
+    "WHEN pgrep returns exit 1 (no match) THE SYSTEM SHALL return an empty result, and WHEN a genuine exec fault occurs THE SYSTEM SHALL surface a TmuxExecError (AC5.1).",
+    "WHEN newSession runs THE SYSTEM SHALL use a shared exec-wrap helper with no copy-pasted TmuxExecError block (AC5.2).",
+    "WHEN term_wait_for matches THE SYSTEM SHALL keep the non-reset cursor with an inline comment explaining the intent (AC5.3).",
+    "WHEN term_ps runs THE SYSTEM SHALL list grandchildren in processes[] via descendantPids while fgPid stays the direct child, proven by a spec (AC5.4).",
+    "WHEN the MCP test suite runs THE SYSTEM SHALL keep no-pty.spec.ts green (AC5.5)."
+  ],
+  "status": "completed"
+}

@@ -112,6 +112,36 @@ export const ProcessSnapshotFrameSchema = FrameBase.extend({
 });
 export type ProcessSnapshotFrame = z.infer<typeof ProcessSnapshotFrameSchema>;
 
+/**
+ * A cold-attach repaint frame: current screen contents plus a bounded amount
+ * of scrollback history, so a fresh WS open can restore the pane without a
+ * separate REST round-trip. `cols`/`rows` mirror LayoutChangeFrame so the
+ * renderer can fit the grid before painting `data`.
+ *
+ * `scrollbackLines` semantics are explicit, not implicit (contract pitfall —
+ * optional fields need defined default behaviour): `undefined` means the
+ * capture is VIEWPORT-ONLY (no history above the current screen included).
+ * A defined value is how many history lines above the viewport are present
+ * in `data`.
+ */
+export const SnapshotFrameSchema = FrameBase.extend({
+  type: z.literal('snapshot'),
+  /** Captured pane content (current screen + any included scrollback). */
+  data: z.string(),
+  /** Whether `data` contains ANSI colour/style escapes. */
+  withAnsi: z.boolean().optional(),
+  /** Grid width in columns at capture time. */
+  cols: z.number().int().positive(),
+  /** Grid height in rows at capture time. */
+  rows: z.number().int().positive(),
+  /**
+   * History lines above the viewport included in `data`. `undefined` =
+   * viewport-only capture (no scrollback attached).
+   */
+  scrollbackLines: z.number().int().nonnegative().optional(),
+});
+export type SnapshotFrame = z.infer<typeof SnapshotFrameSchema>;
+
 /** All server→client frames. */
 export const ServerFrameSchema = z.discriminatedUnion('type', [
   OutputFrameSchema,
@@ -120,6 +150,7 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   WindowCloseFrameSchema,
   ErrorFrameSchema,
   ProcessSnapshotFrameSchema,
+  SnapshotFrameSchema,
 ]);
 export type ServerFrame = z.infer<typeof ServerFrameSchema>;
 
@@ -159,6 +190,7 @@ export const TermFrameSchema = z.discriminatedUnion('type', [
   WindowCloseFrameSchema,
   ErrorFrameSchema,
   ProcessSnapshotFrameSchema,
+  SnapshotFrameSchema,
   InputFrameSchema,
 ]);
 export type TermFrame = z.infer<typeof TermFrameSchema>;
@@ -171,6 +203,7 @@ export const TERM_FRAME_TYPES = [
   'window-close',
   'error',
   'process-snapshot',
+  'snapshot',
   'input',
 ] as const;
 export type TermFrameType = (typeof TERM_FRAME_TYPES)[number];

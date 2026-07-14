@@ -1,0 +1,59 @@
+{
+  "id": "004",
+  "shard": "04-web-snapshot-guard.md",
+  "subject": "Snapshot/live-frame buffering guard + consume broker snapshot frame",
+  "category": "frontend",
+  "agent": "ddx-term-web-specialist",
+  "depends_on": [
+    "002",
+    "003"
+  ],
+  "parallel_group": "C",
+  "readBeforeStart": [
+    "plans/terminal-ui-refactor/_invariants.md",
+    "ddx-term-web/CLAUDE.md"
+  ],
+  "skill_refs": [
+    "frontend-stack",
+    "typescript-strict"
+  ],
+  "context_files": [
+    "plans/terminal-ui-refactor/_invariants.md",
+    "ddx-term-web/CLAUDE.md",
+    "findings/2026-07-14_terminal-ui-refactor/web-audit.md",
+    "ddx-term-web/src/lib/term/xterm-client.ts"
+  ],
+  "context": "web-audit flags a race in src/lib/term/xterm-client.ts: connect() resolves before the socket is truly open, so live WS frames can interleave with the snapshot write, garbling scrollback on (re)attach and on rapid tab switch. Fix = buffer live frames until the snapshot has been written, then flush in order. New sequence: open WS (buffering mode ON) -> receive/fetch snapshot -> write snapshot to xterm -> flush buffered frames in arrival order -> go live (buffering OFF). With task_002 shipped, the FIRST frame the socket receives is now the broker's authoritative `snapshot` frame (@ddx/term-contract SnapshotFrame) — consume it: on a 'snapshot' frame, xterm.restoreSnapshot(decodedData) then flush the buffer. Still keep a fallback to the REST GET /api/v1/terminals/:id/snapshot path in case the broker snapshot frame is absent (older broker), but prefer the frame. tmux control-mode escapes (\\033/\\015) must already be raw by the time restoreSnapshot runs — the broker decodes them (task_002); verify the web side does not double-decode. Guard the stale-client path: a disposed client's onReconnect / buffered-flush must NOT fire after dispose() — the this.disposed net exists; extend it to cover the buffered-flush path. Do NOT rewrite the reconnect-backoff (solid, jittered exponential capped at 60). Align the route-driven mount in view/[terminalId]/page.tsx (task_003) with this buffering contract. Add an xterm-client.spec.ts test proving buffer-until-painted ordering and that a snapshot frame paints before buffered live frames.",
+  "steps": [
+    "Read web-audit.md + xterm-client.ts to map the current connect()/onmessage/restoreSnapshot lifecycle and the this.disposed guard.",
+    "Add a frame buffer (private pending array + a `painted` boolean). While not painted, push incoming server frames into the buffer instead of writing them to xterm.",
+    "On receiving a 'snapshot' frame (or the REST snapshot fallback), write it via restoreSnapshot, set painted=true, then flush the buffer in FIFO order and clear it; subsequent frames write live.",
+    "Ensure the buffered-flush and any onReconnect early-return when this.disposed is true (extend the existing guard to the new flush path).",
+    "Update view/[terminalId]/page.tsx switch/mount ordering to match: open (buffering) -> snapshot frame or REST -> flush -> live; drop the redundant separate REST fetch when the broker snapshot frame arrives (keep as fallback).",
+    "Add xterm-client.spec.ts cases: (a) live frames arriving before snapshot are buffered and flushed after, in order; (b) a snapshot frame paints before buffered live frames; (c) a flush after dispose() is a no-op.",
+    "Run web typecheck/lint/test."
+  ],
+  "files": {
+    "create": [],
+    "modify": [
+      "ddx-term-web/src/lib/term/xterm-client.ts",
+      "ddx-term-web/src/lib/term/xterm-client.spec.ts",
+      "ddx-term-web/src/app/[locale]/terminal/view/[terminalId]/page.tsx"
+    ],
+    "delete": []
+  },
+  "pitfalls": [
+    "FM2: if the buffer guard is missing under the new route-driven mount, a fast broker paints live frames before the snapshot -> garbled scrollback on every deep-link. Buffer-until-painted is mandatory.",
+    "Do not double-decode tmux escapes — the broker (task_002) already decodes \\033/\\015 to raw bytes; the web side passes them straight to restoreSnapshot.",
+    "A disposed client must not flush or reconnect — extend this.disposed coverage to the flush path (stale second client writing to the wrong terminal is the broker's 1008-close case).",
+    "Do NOT rewrite reconnect-backoff (WS3 NOT line) and do NOT change the @ddx/term-contract frame schema here (it changed in task_001)."
+  ],
+  "validation": "pnpm --filter ddx-term-web typecheck && pnpm --filter ddx-term-web lint && pnpm --filter ddx-term-web test",
+  "acceptance_criteria": [
+    "WHEN live frames arrive before the snapshot is painted THE SYSTEM SHALL buffer them and flush in order after the snapshot writes (AC3.1, AC3.2).",
+    "WHEN a broker snapshot frame is received on cold attach THE SYSTEM SHALL paint it as the first authoritative frame without a separate REST call (AC4.2), falling back to REST only if the frame is absent.",
+    "WHEN tabs are switched rapidly THE SYSTEM SHALL show each terminal's own correct last output with no out-of-order paint (AC3.3).",
+    "WHEN a flush is attempted after dispose() THE SYSTEM SHALL perform no write."
+  ],
+  "status": "completed"
+}

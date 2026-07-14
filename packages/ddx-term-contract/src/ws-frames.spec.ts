@@ -10,6 +10,7 @@ import { TerminalDescriptorSchema, toTerminalId } from './terminal';
 import {
   ClientFrameSchema,
   ServerFrameSchema,
+  SnapshotFrameSchema,
   TERM_FRAME_TYPES,
   TermFrameSchema,
 } from './ws-frames';
@@ -42,6 +43,13 @@ const sampleFrames: Record<string, Record<string, unknown>> = {
     panePid: 100,
     fgPid: null,
     processes: [],
+  },
+  snapshot: {
+    type: 'snapshot',
+    terminalId: 'term-build',
+    data: 'restored screen',
+    cols: 120,
+    rows: 30,
   },
   input: { type: 'input', terminalId: 'term-build', data: 'ls', enter: true },
 };
@@ -79,6 +87,37 @@ describe('TermFrame union', () => {
       type: 'bogus',
       terminalId: 'term-build',
     });
+    expect(parsed.success).toBe(false);
+  });
+});
+
+describe('SnapshotFrame (cold-attach repaint)', () => {
+  it('is registered in TERM_FRAME_TYPES', () => {
+    expect(TERM_FRAME_TYPES).toContain('snapshot');
+  });
+
+  it('parses a viewport-only snapshot (scrollbackLines omitted)', () => {
+    const parsed = SnapshotFrameSchema.safeParse(sampleFrames.snapshot);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.scrollbackLines).toBeUndefined();
+    }
+  });
+
+  it('parses a snapshot with bounded scrollbackLines', () => {
+    const parsed = SnapshotFrameSchema.safeParse({
+      ...sampleFrames.snapshot,
+      scrollbackLines: 500,
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.scrollbackLines).toBe(500);
+    }
+  });
+
+  it('rejects a snapshot frame missing terminalId', () => {
+    const { terminalId: _omit, ...withoutTid } = sampleFrames.snapshot!;
+    const parsed = SnapshotFrameSchema.safeParse(withoutTid);
     expect(parsed.success).toBe(false);
   });
 });

@@ -1,0 +1,51 @@
+{
+  "id": "001",
+  "shard": "01-contract-frame.md",
+  "subject": "Add bounded snapshot/scrollback frame to @ddx/term-contract",
+  "category": "contract",
+  "agent": "ddx-term-broker-specialist",
+  "depends_on": [],
+  "parallel_group": "A",
+  "readBeforeStart": [
+    "plans/terminal-ui-refactor/_invariants.md",
+    "packages/ddx-term-contract/CLAUDE.md"
+  ],
+  "skill_refs": [
+    "typescript-strict",
+    "frontend-stack"
+  ],
+  "context_files": [
+    "plans/terminal-ui-refactor/_invariants.md",
+    "packages/ddx-term-contract/CLAUDE.md",
+    "packages/ddx-term-contract/src/ws-frames.ts",
+    "findings/2026-07-14_terminal-ui-refactor/broker-audit.md"
+  ],
+  "context": "The WS frame union in packages/ddx-term-contract/src/ws-frames.ts is a zod/v4 discriminatedUnion on `type`, declared OPEN for new variants (comment line 12-13). Every variant extends FrameBase (carries terminalId — NON-NEGOTIABLE, line 27-30). Existing server frames: output|layout-change|window-add|window-close|error|process-snapshot. The broker's restore-on-attach (task_002) and the web consumer (task_004) both need a NEW variant that carries the current screen + bounded scrollback so a cold WS open repaints without a REST round-trip. Add a `SnapshotFrameSchema` variant (type literal 'snapshot') extending FrameBase with: `data: z.string()` (the captured pane content, may include ANSI when captured with -e), `withAnsi: z.boolean().optional()`, `cols`/`rows` z.number().int().positive() (grid dims at capture time — matches LayoutChangeFrame shape so the renderer can fit), and `scrollbackLines: z.number().int().nonnegative().optional()` (how many history lines above the viewport are included; default undefined = viewport-only). Register it in BOTH ServerFrameSchema and TermFrameSchema discriminated unions, add 'snapshot' to TERM_FRAME_TYPES, export SnapshotFrame type. Contract builds FIRST in the turbo DAG (^build) — broker/mcp/web rebuild against it. Optional fields MUST carry explicit semantics (pitfall: contract optional fields need defined default behaviour — document that undefined scrollbackLines means viewport-only).",
+  "steps": [
+    "Read packages/ddx-term-contract/src/ws-frames.ts fully; note the FrameBase extend pattern and the two union registration points (ServerFrameSchema ~line 116, TermFrameSchema ~line 155) plus TERM_FRAME_TYPES (~line 167).",
+    "Add SnapshotFrameSchema = FrameBase.extend({ type: z.literal('snapshot'), data: z.string(), withAnsi: z.boolean().optional(), cols: z.number().int().positive(), rows: z.number().int().positive(), scrollbackLines: z.number().int().nonnegative().optional() }) with a JSDoc block explaining: carries current screen + bounded scrollback for cold-attach repaint; undefined scrollbackLines = viewport-only capture. Export `type SnapshotFrame = z.infer<typeof SnapshotFrameSchema>`.",
+    "Register SnapshotFrameSchema in ServerFrameSchema and TermFrameSchema discriminatedUnion arrays; add 'snapshot' to the TERM_FRAME_TYPES const array (keep it in the server→client group, before 'input').",
+    "Update packages/ddx-term-contract/src/ws-frames.spec.ts: add an assertion that 'snapshot' is in TERM_FRAME_TYPES and that a valid snapshot frame parses (with and without scrollbackLines) and that a snapshot frame missing terminalId fails.",
+    "Run the contract build + test; confirm the dual build (esm+cjs+types) regenerates so downstream packages see the new type."
+  ],
+  "files": {
+    "create": [],
+    "modify": [
+      "packages/ddx-term-contract/src/ws-frames.ts",
+      "packages/ddx-term-contract/src/ws-frames.spec.ts"
+    ],
+    "delete": []
+  },
+  "pitfalls": [
+    "Every frame variant MUST extend FrameBase so terminalId is present — omitting it breaks per-terminal WS routing (contract invariant, ws-frames.ts:12).",
+    "Contract optional fields need defined default behaviour — document that undefined scrollbackLines = viewport-only; do not leave the semantics implicit (PROJECT_LEARNINGS).",
+    "Contract builds FIRST in turbo DAG — do not add the frame anywhere in broker/mcp/web; it lands in the contract package only, then downstream imports it."
+  ],
+  "validation": "pnpm --filter @ddx/term-contract build && pnpm --filter @ddx/term-contract test && pnpm --filter @ddx/term-contract typecheck",
+  "acceptance_criteria": [
+    "WHEN the contract package is built THE SYSTEM SHALL export a SnapshotFrame type and schema whose union membership includes terminalId, data, cols, rows, and optional scrollbackLines.",
+    "WHEN a snapshot frame lacking terminalId is parsed THE SYSTEM SHALL reject it (FrameBase enforcement).",
+    "WHEN TERM_FRAME_TYPES is read THE SYSTEM SHALL include 'snapshot'."
+  ],
+  "status": "completed"
+}

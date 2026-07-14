@@ -155,7 +155,7 @@ describe('XtermClient', () => {
 
   // ── AC #7 — output frame → written to xterm ─────────────────────────────
 
-  it('AC#7: writes output frame data to the xterm terminal', async () => {
+  it('AC#7: writes output frame data to the xterm terminal (once painted)', async () => {
     const { XtermClient } = await import('./xterm-client');
     const terminalId = toTerminalId('t01');
     const el = makeContainer();
@@ -167,6 +167,13 @@ describe('XtermClient', () => {
     const ws = wsInstances[0];
     expect(ws).toBeDefined();
     ws!.simulateOpen();
+
+    // task_004: a live frame before the snapshot paints is buffered, not
+    // written — restoreSnapshot() (or a broker `snapshot` frame) is what
+    // flips painted=true. See the dedicated buffer-until-painted tests below
+    // for the ordering guarantee itself; this test only re-asserts AC#7 once
+    // painted, matching the real page's connect() → restoreSnapshot() flow.
+    client.restoreSnapshot('');
 
     // Broker emits an output frame.
     const frame = JSON.stringify({ type: 'output', terminalId: 't01', data: 'hello\r\n' });
@@ -273,5 +280,84 @@ describe('XtermClient', () => {
     expect(states).toContain('disconnected');
 
     client.dispose();
+  });
+
+  // ── task_004: buffer-until-painted guard ────────────────────────────────
+
+  it('AC3.1/AC3.2: buffers live frames until the snapshot paints, then flushes in order', async () => {
+    const { XtermClient } = await import('./xterm-client');
+    const el = makeContainer();
+    const { callbacks } = makeCallbacks();
+
+    const client = new XtermClient(toTerminalId('t01'), el, callbacks);
+    await client.connect();
+    const ws = wsInstances[0]!;
+    ws.simulateOpen();
+
+    // Live frames race ahead of the snapshot — must NOT write yet.
+    ws.simulateMessage(JSON.stringify({ type: 'output', terminalId: 't01', data: 'first\r\n' }));
+    ws.simulateMessage(JSON.stringify({ type: 'output', terminalId: 't01', data: 'second\r\n' }));
+    expect(terminalStub.writtenData).toHaveLength(0);
+
+    // REST-fallback snapshot arrives and paints — this is the flush trigger.
+    client.restoreSnapshot('$ prompt\r\n');
+
+    // Snapshot painted FIRST, then the two buffered frames in arrival order.
+    expect(terminalStub.writtenData).toEqual(['$ prompt\r\n', 'first\r\n', 'second\r\n']);
+
+    // Frames after the flush write immediately (no longer buffered).
+    ws.simulateMessage(JSON.stringify({ type: 'output', terminalId: 't01', data: 'live\r\n' }));
+    expect(terminalStub.writtenData).toEqual(['$ prompt\r\n', 'first\r\n', 'second\r\n', 'live\r\n']);
+
+    client.dispose();
+  });
+
+  it('AC4.2: a broker snapshot frame paints as the authoritative first frame, before buffered live frames', async () => {
+    const { XtermClient } = await import('./xterm-client');
+    const el = makeContainer();
+    const { callbacks } = makeCallbacks();
+
+    const client = new XtermClient(toTerminalId('t01'), el, callbacks);
+    await client.connect();
+    const ws = wsInstances[0]!;
+    ws.simulateOpen();
+
+    // A live frame arrives before the broker's snapshot frame (cold-attach race).
+    ws.simulateMessage(JSON.stringify({ type: 'output', terminalId: 't01', data: 'racer\r\n' }));
+    expect(terminalStub.writtenData).toHaveLength(0);
+
+    // Broker's own snapshot frame (task_002/task_001) — the authoritative
+    // cold-attach repaint. Bare-LF (no CR) mirrors tmux capture-pane -p output;
+    // restoreSnapshot's CRLF-normalize applies here too since the same method
+    // paints it.
+    ws.simulateMessage(JSON.stringify({
+      type: 'snapshot', terminalId: 't01', data: '$ snapshot\n', cols: 120, rows: 30,
+    }));
+
+    expect(terminalStub.writtenData).toEqual(['$ snapshot\r\n', 'racer\r\n']);
+
+    client.dispose();
+  });
+
+  it('a flush attempted after dispose() performs no write', async () => {
+    const { XtermClient } = await import('./xterm-client');
+    const el = makeContainer();
+    const { callbacks } = makeCallbacks();
+
+    const client = new XtermClient(toTerminalId('t01'), el, callbacks);
+    await client.connect();
+    const ws = wsInstances[0]!;
+    ws.simulateOpen();
+
+    // Buffer a live frame, then dispose BEFORE anything paints.
+    ws.simulateMessage(JSON.stringify({ type: 'output', terminalId: 't01', data: 'buffered\r\n' }));
+    expect(terminalStub.writtenData).toHaveLength(0);
+
+    client.dispose();
+
+    // A stale restoreSnapshot() call (e.g. a slow REST fetch resolving after
+    // dispose) must not paint or flush the now-orphaned buffer.
+    client.restoreSnapshot('$ stale\r\n');
+    expect(terminalStub.writtenData).toHaveLength(0);
   });
 });

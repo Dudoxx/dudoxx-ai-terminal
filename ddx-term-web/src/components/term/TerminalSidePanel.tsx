@@ -25,6 +25,10 @@ export interface TerminalSidePanelProps {
   activeId: string | null;
   collapsed: boolean;
   loading: boolean;
+  /** view/[terminalId]/readonly route: hide new/rename/kill mutation affordances. */
+  readonly?: boolean;
+  /** view/[terminalId]/edit route: open the active row's inline rename by default. */
+  autoRename?: boolean;
   onSelect: (terminalId: string) => void;
   onCreate: () => void;
   onRename: (terminalId: string, title: string) => void;
@@ -34,7 +38,7 @@ export interface TerminalSidePanelProps {
 
 export function TerminalSidePanel(props: TerminalSidePanelProps): React.JSX.Element {
   const {
-    terminals, activeId, collapsed, loading,
+    terminals, activeId, collapsed, loading, readonly = false, autoRename = false,
     onSelect, onCreate, onRename, onKill, onToggleCollapsed,
   } = props;
   const t = useTranslations('terminal');
@@ -54,14 +58,16 @@ export function TerminalSidePanel(props: TerminalSidePanelProps): React.JSX.Elem
         >
           <PanelLeftOpen aria-hidden className="size-5" />
         </button>
-        <button
-          type="button"
-          onClick={onCreate}
-          aria-label={t('newTerminal')}
-          className="grid size-9 place-items-center rounded text-muted-foreground hover:bg-tab-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Plus aria-hidden className="size-5" />
-        </button>
+        {!readonly && (
+          <button
+            type="button"
+            onClick={onCreate}
+            aria-label={t('newTerminal')}
+            className="grid size-9 place-items-center rounded text-muted-foreground hover:bg-tab-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Plus aria-hidden className="size-5" />
+          </button>
+        )}
       </aside>
     );
   }
@@ -100,6 +106,8 @@ export function TerminalSidePanel(props: TerminalSidePanelProps): React.JSX.Elem
               key={descriptor.terminalId}
               descriptor={descriptor}
               active={descriptor.terminalId === activeId}
+              readonly={readonly}
+              autoRename={autoRename && descriptor.terminalId === activeId}
               onSelect={onSelect}
               onRename={onRename}
               onKill={onKill}
@@ -109,16 +117,18 @@ export function TerminalSidePanel(props: TerminalSidePanelProps): React.JSX.Elem
       </nav>
 
       {/* New terminal */}
-      <div className="px-2 py-2">
-        <button
-          type="button"
-          onClick={onCreate}
-          className="flex w-full items-center justify-center gap-1.5 rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Plus aria-hidden className="size-4" />
-          {t('newTerminal')}
-        </button>
-      </div>
+      {!readonly && (
+        <div className="px-2 py-2">
+          <button
+            type="button"
+            onClick={onCreate}
+            className="flex w-full items-center justify-center gap-1.5 rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Plus aria-hidden className="size-4" />
+            {t('newTerminal')}
+          </button>
+        </div>
+      )}
 
       {/* Appearance controls — pinned below the session list */}
       <div className="shadow-elev-1">
@@ -133,6 +143,9 @@ export function TerminalSidePanel(props: TerminalSidePanelProps): React.JSX.Elem
 interface TerminalRowProps {
   descriptor: TerminalDescriptor;
   active: boolean;
+  readonly?: boolean;
+  /** edit route: start this row in inline-rename mode on mount. */
+  autoRename?: boolean;
   onSelect: (terminalId: string) => void;
   onRename: (terminalId: string, title: string) => void;
   onKill: (terminalId: string) => void;
@@ -147,9 +160,13 @@ interface TerminalRowProps {
  *              one-click and NO banned window.confirm() dialog (design-system §6/§7).
  */
 function TerminalRow(props: TerminalRowProps): React.JSX.Element {
-  const { descriptor, active, onSelect, onRename, onKill } = props;
+  const { descriptor, active, readonly = false, autoRename = false, onSelect, onRename, onKill } = props;
   const t = useTranslations('terminal');
-  const [mode, setMode] = useState<'view' | 'rename' | 'confirmKill'>('view');
+  // The edit route (view/[id]/edit) lands with the active row already in rename
+  // mode; readonly suppresses it. Non-active rows always start in view.
+  const [mode, setMode] = useState<'view' | 'rename' | 'confirmKill'>(
+    autoRename && !readonly ? 'rename' : 'view',
+  );
   const [draft, setDraft] = useState(descriptor.title);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -212,7 +229,7 @@ function TerminalRow(props: TerminalRowProps): React.JSX.Element {
         <span className="truncate">{t('tabLabel', { title: descriptor.title })}</span>
       </button>
 
-      {mode === 'confirmKill' ? (
+      {readonly ? null : mode === 'confirmKill' ? (
         <>
           <RowIconButton icon={Check} label={t('confirmKill')} danger onClick={() => onKill(descriptor.terminalId)} />
           <RowIconButton icon={X} label={t('cancel')} onClick={() => setMode('view')} />

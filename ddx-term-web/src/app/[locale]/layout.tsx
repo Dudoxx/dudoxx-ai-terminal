@@ -13,8 +13,19 @@ import type { ReactNode } from 'react';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { Bricolage_Grotesque } from 'next/font/google';
 import { routing } from '@/i18n/routing';
 import '../globals.css';
+
+// Display face (Toucan Signal three-face type stack: Bricolage display +
+// Inter UI + JetBrains Mono data). Self-hosted via next/font/google — avoids
+// a raw <link> tag's layout shift + CSP exposure. Exposed as --font-bricolage,
+// consumed by globals.css's --font-display.
+const bricolage = Bricolage_Grotesque({
+  subsets: ['latin'],
+  variable: '--font-bricolage',
+  display: 'swap',
+});
 
 interface Props {
   children: ReactNode;
@@ -32,7 +43,7 @@ export default async function LocaleLayout({ children, params }: Props) {
   const messages = await getMessages();
 
   return (
-    <html lang={locale} className="dark">
+    <html lang={locale} className={`dark ${bricolage.variable}`}>
       <body className="bg-background text-foreground min-h-dvh flex flex-col">
         <NextIntlClientProvider messages={messages}>
           {children}

@@ -1,0 +1,122 @@
+{
+  "scope": "terminal-ui-refactor",
+  "schema": 2,
+  "status": "reconciled",
+  "execution_model": "parallel",
+  "branch": "feature/terminal-ui-refactor",
+  "resume_protocol": "Read tasks/manifest.json + tasks/task_*.json; a task is done when its progress/{id}.md status is done AND its validation passed. Resume the lowest-id incomplete task honoring depends_on.",
+  "parallel_groups": {
+    "A": {
+      "depends_on": []
+    },
+    "B": {
+      "depends_on": [
+        "A"
+      ]
+    },
+    "C": {
+      "depends_on": [
+        "B"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "id": "001",
+      "shard": "01-contract-frame.md",
+      "subject": "Add bounded snapshot/scrollback frame to @ddx/term-contract",
+      "agent": "ddx-term-broker-specialist",
+      "parallel_group": "A",
+      "depends_on": [],
+      "files": [
+        "packages/ddx-term-contract/src/ws-frames.ts",
+        "packages/ddx-term-contract/src/ws-frames.spec.ts"
+      ],
+      "file": "task_001.json"
+    },
+    {
+      "id": "002",
+      "shard": "02-broker-restore.md",
+      "subject": "Broker restore-on-attach push + bounded scrollback capture",
+      "agent": "ddx-term-broker-specialist",
+      "parallel_group": "A",
+      "depends_on": [
+        "001"
+      ],
+      "files": [
+        "ddx-term-broker/src/modules/gateway/term.gateway.ts",
+        "ddx-term-broker/src/modules/terminal/terminal.service.ts"
+      ],
+      "file": "task_002.json"
+    },
+    {
+      "id": "003",
+      "shard": "03-web-routing.md",
+      "subject": "§10 URL-based terminal entity routing + breadcrumbs + i18n",
+      "agent": "ddx-term-web-specialist",
+      "parallel_group": "B",
+      "depends_on": [
+        "002"
+      ],
+      "files": [
+        "ddx-term-web/src/app/[locale]/terminal/view/[terminalId]/page.tsx",
+        "ddx-term-web/src/app/[locale]/terminal/list/grid/page.tsx",
+        "ddx-term-web/src/app/[locale]/terminal/list/list/page.tsx",
+        "ddx-term-web/src/app/[locale]/terminal/list/timeline/page.tsx",
+        "ddx-term-web/src/app/[locale]/terminal/new/page.tsx",
+        "ddx-term-web/src/app/[locale]/terminal/page.tsx",
+        "ddx-term-web/src/app/page.tsx",
+        "ddx-term-web/src/components/term/TerminalBreadcrumb.tsx",
+        "ddx-term-web/messages/en.json",
+        "ddx-term-web/messages/de.json",
+        "ddx-term-web/messages/fr.json"
+      ],
+      "file": "task_003.json"
+    },
+    {
+      "id": "004",
+      "shard": "04-web-snapshot-guard.md",
+      "subject": "Snapshot/live-frame buffering guard + consume broker snapshot frame",
+      "agent": "ddx-term-web-specialist",
+      "parallel_group": "C",
+      "depends_on": [
+        "002",
+        "003"
+      ],
+      "files": [
+        "ddx-term-web/src/lib/term/xterm-client.ts",
+        "ddx-term-web/src/lib/term/xterm-client.spec.ts",
+        "ddx-term-web/src/app/[locale]/terminal/view/[terminalId]/page.tsx"
+      ],
+      "file": "task_004.json"
+    },
+    {
+      "id": "005",
+      "shard": "05-web-design-tokens.md",
+      "subject": "Toucan Signal design-token compliance",
+      "agent": "ddx-term-web-specialist",
+      "parallel_group": "A",
+      "depends_on": [],
+      "files": [
+        "ddx-term-web/src/app/globals.css",
+        "ddx-term-web/src/app/[locale]/layout.tsx",
+        "ddx-term-web/src/components/term/AppearanceControls.tsx"
+      ],
+      "file": "task_005.json"
+    },
+    {
+      "id": "006",
+      "shard": "06-mcp-hardening.md",
+      "subject": "MCP tmux-client hardening",
+      "agent": "ddx-term-mcp-specialist",
+      "parallel_group": "A",
+      "depends_on": [],
+      "files": [
+        "ddx-term-mcp/src/tmux/tmux.client.ts",
+        "ddx-term-mcp/src/tools/term-wait-for.tool.ts",
+        "ddx-term-mcp/src/tools/term-ps.tool.ts"
+      ],
+      "file": "task_006.json"
+    }
+  ]
+}

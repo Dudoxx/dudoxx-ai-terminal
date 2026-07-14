@@ -1,0 +1,58 @@
+{
+  "id": "002",
+  "shard": "02-broker-restore.md",
+  "subject": "Broker restore-on-attach push + bounded scrollback capture",
+  "category": "backend",
+  "agent": "ddx-term-broker-specialist",
+  "depends_on": [
+    "001"
+  ],
+  "parallel_group": "A",
+  "destructive": false,
+  "readBeforeStart": [
+    "plans/terminal-ui-refactor/_invariants.md",
+    "ddx-term-broker/CLAUDE.md"
+  ],
+  "skill_refs": [
+    "nestjs-backend",
+    "typescript-strict"
+  ],
+  "context_files": [
+    "plans/terminal-ui-refactor/_invariants.md",
+    "ddx-term-broker/CLAUDE.md",
+    "findings/2026-07-14_terminal-ui-refactor/broker-audit.md",
+    "ddx-term-broker/src/modules/gateway/term.gateway.ts",
+    "ddx-term-broker/src/modules/terminal/terminal.service.ts"
+  ],
+  "context": "handleConnection at ddx-term-broker/src/modules/gateway/term.gateway.ts:168-206 subscribes a client to a terminalId's frame fan-out but pushes NO initial state — the client sees a blank screen until the next live %output arrives (broker HIGH defect #1). terminal.service.ts:113-140 has snapshot(rawId) which runs `capture-pane -t <target> -e -p` (viewport-only, `-e` for SGR escapes; note it does NOT pass -S, so no scrollback). D1=YES requires a SEPARATE bounded-scrollback capture method (never modify snapshot() to be unbounded). Two changes: (1) add `snapshotWithScrollback(rawId, lines)` that runs `capture-pane -t <target> -e -p -S -<lines>` where lines is a named module constant SCROLLBACK_LINES (default e.g. 500, MUST be <= tmux history-limit; NEVER bare -S / unbounded). Keep the leading `ESC[2J ESC[H` clear+home prelude like snapshot() so it repaints cleanly. (2) In handleConnection, after registering the subscriber, capture the current state via the new method, build a `snapshot` frame (the new @ddx/term-contract SnapshotFrame from task_001 — data, cols=120, rows=30, withAnsi:true, scrollbackLines:SCROLLBACK_LINES) and socket.send() it BEFORE any live frame can reach this socket (register-then-immediately-push, so the first frame the socket sees is authoritative). CRITICAL tmux control-mode escape decode: capture-pane output from control mode encodes ESC as literal \\033 and CR as \\015 — the frame data reaching the web xterm must be RAW bytes; if the capture path returns control-mode-encoded escapes, decode \\033->ESC and \\015->CR before putting them in the frame (PROJECT_LEARNINGS pitfall). Dims are pinned 120x30 by session.service — read them, never renegotiate. Do NOT touch reconcileRegistry or dims pinning.",
+  "steps": [
+    "Read broker-audit.md then term.gateway.ts:168-206 and terminal.service.ts:113-140 to confirm the subscribe flow and the existing viewport snapshot() shape.",
+    "In terminal.service.ts add a module const SCROLLBACK_LINES (default 500, comment: must be <= tmux history-limit; bound is named per FM#3 never-unbounded) and a new async method snapshotWithScrollback(rawId, lines = SCROLLBACK_LINES) that mirrors snapshot() but appends `-S`, `-${lines}` to the capture-pane args. Reuse the clear+home prelude. Return the same SnapshotResult shape plus the line count.",
+    "Ensure any tmux control-mode escape encoding (\\033/\\015) is decoded to raw ESC/CR before the captured string is returned/framed (add a decode step if the capture path is control-mode-sourced; verify against how live %output frames are decoded).",
+    "In term.gateway.ts handleConnection, after adding the socket to subscribers, call terminalService.snapshotWithScrollback(terminalId), construct a SnapshotFrame ({ type:'snapshot', terminalId, data, cols:120, rows:30, withAnsi:true, scrollbackLines:SCROLLBACK_LINES }) imported from @ddx/term-contract, and socket.send(JSON.stringify(frame)) synchronously before live dispatch can interleave. Guard for a terminal that vanished between subscribe and capture (send an error frame, do not throw).",
+    "Add/extend a broker spec asserting: (a) handleConnection pushes exactly one snapshot frame on subscribe, (b) snapshotWithScrollback passes a bounded -S with a numeric arg and never a bare -S, (c) dims remain 120x30.",
+    "Run broker build + test."
+  ],
+  "files": {
+    "create": [],
+    "modify": [
+      "ddx-term-broker/src/modules/gateway/term.gateway.ts",
+      "ddx-term-broker/src/modules/terminal/terminal.service.ts"
+    ],
+    "delete": []
+  },
+  "pitfalls": [
+    "NEVER return unbounded scrollback — the -S arg MUST be a named numeric bound (SCROLLBACK_LINES), never bare `-S` (FM#3 / WS4 NOT line).",
+    "tmux -CC control-mode encodes ESC as \\033 and CR as \\015; decode to RAW bytes before the snapshot frame reaches the web xterm or the client renders literal escape text.",
+    "The broker's node-pty (tmux -CC attach) is LEGITIMATE — do not remove or bypass it; this task only adds a capture + push path.",
+    "Push the snapshot frame BEFORE live frames can interleave (register subscriber then immediately send) — otherwise the very race WS3 fixes reappears at the broker.",
+    "Do NOT change dims pinning (120x30) or reconcileRegistry (WS4 NOT line)."
+  ],
+  "validation": "pnpm --filter ddx-term-broker build && pnpm --filter ddx-term-broker test",
+  "acceptance_criteria": [
+    "WHEN a client opens a WS to /term/<id> THE SYSTEM SHALL push one snapshot frame carrying the current screen plus bounded scrollback before any live frame (AC4.1, AC4.2).",
+    "WHEN the scrollback capture runs THE SYSTEM SHALL pass a named numeric -S bound and never a bare/unbounded -S (AC4.3).",
+    "WHEN dims are inspected THE SYSTEM SHALL still pin 120x30 with no client renegotiation (AC4.4)."
+  ],
+  "status": "completed"
+}

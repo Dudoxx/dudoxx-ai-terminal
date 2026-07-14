@@ -30,6 +30,16 @@ const defaultExec: ExecRunner = promisify(execFile);
 const SESSION_NAME = process.env['DDX_TERM_SESSION'] ?? 'ddx-shared';
 const SOCKET_PATH = process.env['DDX_TERM_SOCKET'] ?? '/tmp/ddx-term.sock';
 
+/**
+ * Bounded scrollback capture depth for the cold-attach snapshot frame
+ * (task_002 / SnapshotFrame). MUST stay a named numeric bound — a bare/
+ * unbounded `-S` on `capture-pane` is forbidden (WS4 NOT line, FM#3): tmux
+ * history can grow far beyond a sane repaint payload. This value must also
+ * stay <= the session's tmux `history-limit` (capture-pane clamps silently
+ * if `lines` exceeds what tmux actually retained).
+ */
+const SCROLLBACK_LINES = 500;
+
 function tmux(...args: string[]): string[] {
   return ['-S', SOCKET_PATH, ...args];
 }
@@ -44,6 +54,12 @@ export interface SnapshotResult {
   cols: number;
   rows: number;
   capturedAt: number;
+}
+
+/** Result of a bounded-scrollback capture (snapshotWithScrollback). */
+export interface SnapshotWithScrollbackResult extends SnapshotResult {
+  /** How many history lines above the viewport were requested (bounded). */
+  scrollbackLines: number;
 }
 
 @Injectable()
@@ -164,6 +180,49 @@ export class TerminalService {
       cols: sessionDesc.cols,
       rows: sessionDesc.rows,
       capturedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Capture the current screen PLUS bounded scrollback — the cold-attach
+   * repaint source for the broker's `snapshot` WS frame (task_002). A
+   * SEPARATE method from `snapshot()` (never make `snapshot()` itself
+   * unbounded, WS4 NOT line): this one adds `-S -<lines>` to `capture-pane`
+   * so history above the viewport is included, bounded by `lines`.
+   *
+   * Same attributed-repaint shape as `snapshot()` (SGR escapes via `-e`,
+   * leading clear+home so it paints onto a clean grid) — see that method's
+   * doc for the rationale. `capture-pane` output here is ALREADY raw bytes
+   * (no tmux control-mode octal escaping applies to this direct exec path —
+   * that decoding is only needed for the `%output` control-mode stream, see
+   * control-mode.parser.ts:90-98), so no additional decode step is required.
+   */
+  async snapshotWithScrollback(
+    rawId: string,
+    lines: number = SCROLLBACK_LINES,
+  ): Promise<SnapshotWithScrollbackResult> {
+    const terminalId = toTerminalId(rawId);
+    const descriptor = this.sessionService.getTerminal(terminalId);
+    if (!descriptor) {
+      throw new NotFoundException(`Terminal not found: ${rawId}`);
+    }
+
+    const ESC = String.fromCharCode(27);
+    const target = `${SESSION_NAME}:${descriptor.windowId}`;
+    const { stdout: grid } = await this.exec('tmux', tmux(
+      'capture-pane', '-t', target, '-e', '-p', '-S', `-${lines}`,
+    ));
+
+    const content = `${ESC}[2J${ESC}[H${grid}`;
+
+    const sessionDesc = this.sessionService.getSessionDescriptor();
+    return {
+      terminalId,
+      content,
+      cols: sessionDesc.cols,
+      rows: sessionDesc.rows,
+      capturedAt: Date.now(),
+      scrollbackLines: lines,
     };
   }
 }

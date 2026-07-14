@@ -34,12 +34,14 @@ import { Server as WsServer, WebSocket } from 'ws';
 import {
   type ServerFrame,
   type ClientFrame,
+  type SnapshotFrame,
   type TerminalId,
   type WindowId,
   ClientFrameSchema,
 } from '@ddx/term-contract';
 import { SessionService } from '../session/session.service';
 import { ControlModeAttach } from '../control-mode/control-mode.attach';
+import { TerminalService } from '../terminal/terminal.service';
 
 const execFileAsync = promisify(execFile);
 
@@ -108,6 +110,7 @@ export class TermGateway
   constructor(
     private readonly sessionService: SessionService,
     private readonly controlModeAttach: ControlModeAttach,
+    private readonly terminalService: TerminalService,
   ) {}
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
@@ -193,6 +196,59 @@ export class TermGateway
     socket.on('close', () => {
       this.handleDisconnect(socket);
     });
+
+    // Cold-attach repaint (AC4.1/4.2): push ONE snapshot frame carrying the
+    // current screen + bounded scrollback so a fresh WS open (deep-linked
+    // page load) restores its output without a REST round-trip. Fired
+    // immediately after subscribing — the socket is already registered so
+    // any live %output arriving mid-capture would be a race, but there is no
+    // yield point between `subs.add(socket)` above and the awaited capture
+    // starting; dispatchFrame's own delivery is still async I/O (control-mode
+    // attach loop → parser → dispatchFrame), so this snapshot capture+send
+    // reaches the socket first in practice. Any terminal that vanished
+    // between subscribe and capture gets an error frame instead of a throw.
+    void this.pushInitialSnapshot(socket, terminalId);
+  }
+
+  /**
+   * Capture + send the cold-attach snapshot frame for a just-subscribed
+   * socket. Isolated so a capture failure (terminal destroyed mid-race)
+   * degrades to an error frame rather than an unhandled rejection.
+   */
+  private async pushInitialSnapshot(
+    socket: WebSocket,
+    terminalId: TerminalId,
+  ): Promise<void> {
+    try {
+      const result = await this.terminalService.snapshotWithScrollback(
+        terminalId,
+      );
+      if (socket.readyState !== WebSocket.OPEN) return;
+      const frame: SnapshotFrame = {
+        type: 'snapshot',
+        terminalId,
+        data: result.content,
+        cols: result.cols,
+        rows: result.rows,
+        withAnsi: true,
+        scrollbackLines: result.scrollbackLines,
+      };
+      socket.send(JSON.stringify(frame));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Initial snapshot failed for terminalId=${terminalId}: ${msg}`,
+      );
+      if (socket.readyState === WebSocket.OPEN) {
+        const frame: ServerFrame = {
+          type: 'error',
+          terminalId,
+          message: `Could not restore snapshot: ${msg}`,
+          code: 'SNAPSHOT_FAILED',
+        };
+        socket.send(JSON.stringify(frame));
+      }
+    }
   }
 
   handleDisconnect(socket: WebSocket): void {

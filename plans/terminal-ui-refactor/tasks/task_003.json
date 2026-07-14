@@ -1,0 +1,79 @@
+{
+  "id": "003",
+  "shard": "03-web-routing.md",
+  "subject": "§10 URL-based terminal entity routing + breadcrumbs + i18n",
+  "category": "frontend",
+  "agent": "ddx-term-web-specialist",
+  "depends_on": [
+    "002"
+  ],
+  "parallel_group": "B",
+  "featureFlag": false,
+  "readBeforeStart": [
+    "plans/terminal-ui-refactor/_invariants.md",
+    "ddx-term-web/CLAUDE.md"
+  ],
+  "skill_refs": [
+    "ddx-nextjs-navigation",
+    "frontend-stack",
+    "i18n-nextintl"
+  ],
+  "context_files": [
+    "plans/terminal-ui-refactor/_invariants.md",
+    "ddx-term-web/CLAUDE.md",
+    "findings/2026-07-14_terminal-ui-refactor/web-audit.md",
+    "ddx-term-web/src/app/[locale]/terminal/page.tsx",
+    "ddx-term-web/src/components/term/TerminalSidePanel.tsx",
+    "ddx-term-web/src/app/page.tsx"
+  ],
+  "context": "Today src/app/[locale]/terminal/page.tsx is a SINGLE page holding active-terminal selection in useState (web-audit CRITICAL: page.tsx:77 useState selection) — this is the thing being replaced. D2=YES: implement the FULL design-system §10 entity grammar for the `terminal` entity (dudoxx-design-system.md §10-13). Build this route family under src/app/[locale]/terminal/: (a) view/[terminalId]/page.tsx — derives active terminalId from `await params` (Next 16 async params) NOT useState; preserves the dispose->new XtermClient->snapshot sequence re-triggered by the param change; modes view/[terminalId]/readonly and view/[terminalId]/edit (rename flow). (b) list/{grid,list,timeline}/page.tsx — grid=cards, list=rows, timeline=activity, over the broker terminal list (GET /api/v1/terminals via existing proxy). (c) new/page.tsx — create flow (or redirect-create). (d) index terminal/page.tsx -> redirect to list/grid (or most-recent view/[id]); empty-state when none; notFound() when a URL terminalId no longer exists (the polled list can lose it). Selection navigates via router.push('/{locale}/terminal/view/{id}') shallow — NOT setState. A breadcrumb stack must be reconstructible from the URL alone (§13) via route segments + a small typed entity-label map (Terminals / <title> / mode). URL-persist view-mode + selection (§11-12). ALSO fix src/app/page.tsx: locale-aware root redirect (drop hardcoded '/en' — read the negotiated locale). EXCLUDE the §10 sub-entity/export/print tail (terminals have none). i18n: every NEW user-facing string (view-mode labels, breadcrumb labels, empty-states, new/rename UI) needs a key added to messages/{en,de,fr}.json in LOCKSTEP under the `terminal` namespace (existing keys listed in web CLAUDE.md; add e.g. terminal.list.grid/list/timeline, terminal.breadcrumb.root, terminal.empty, terminal.notFound). lucide-react icons only, semantic @theme tokens only, zero any.",
+  "steps": [
+    "Read web-audit.md + the current terminal/page.tsx to extract the reusable pieces (XtermClient wiring, TerminalSidePanel, snapshot fetch) that must move into view/[terminalId]/page.tsx.",
+    "Create src/app/[locale]/terminal/view/[terminalId]/page.tsx: read terminalId from `await params`; mount XtermClient for that id; preserve dispose->new XtermClient->snapshot on param change (no useState activeId). Add readonly/ and edit/ sub-route pages (edit = rename form; readonly = no input).",
+    "Create list/grid/page.tsx, list/list/page.tsx, list/timeline/page.tsx over the broker terminals list; grid=cards, list=rows, timeline=activity. Selection uses router.push to view/[id]. URL-persist view-mode (the segment IS the persistence).",
+    "Create new/page.tsx (create-or-redirect). Rewrite index terminal/page.tsx to redirect to list/grid or the most-recent view/[id], with an empty-state when there are no terminals, and notFound() when a requested view id is gone.",
+    "Add a breadcrumb component (or reuse a §13 breadcrumb primitive if one exists — grep first per Cardinal #20) driven purely by route segments + a typed label map: Terminals -> <terminal title> -> mode. Wire it into the terminal route layout.",
+    "Fix src/app/page.tsx to redirect using the negotiated/default locale rather than a hardcoded '/en'.",
+    "Add all new t() keys to messages/en.json, messages/de.json, messages/fr.json in lockstep (translated or TRANSLATE_ME placeholder); delete .next/cache or restart dev per Cardinal #23 before verifying.",
+    "Point TerminalSidePanel selection at router.push navigation instead of setState."
+  ],
+  "files": {
+    "create": [
+      "ddx-term-web/src/app/[locale]/terminal/view/[terminalId]/page.tsx",
+      "ddx-term-web/src/app/[locale]/terminal/view/[terminalId]/readonly/page.tsx",
+      "ddx-term-web/src/app/[locale]/terminal/view/[terminalId]/edit/page.tsx",
+      "ddx-term-web/src/app/[locale]/terminal/list/grid/page.tsx",
+      "ddx-term-web/src/app/[locale]/terminal/list/list/page.tsx",
+      "ddx-term-web/src/app/[locale]/terminal/list/timeline/page.tsx",
+      "ddx-term-web/src/app/[locale]/terminal/new/page.tsx",
+      "ddx-term-web/src/components/term/TerminalBreadcrumb.tsx"
+    ],
+    "modify": [
+      "ddx-term-web/src/app/[locale]/terminal/page.tsx",
+      "ddx-term-web/src/app/page.tsx",
+      "ddx-term-web/src/components/term/TerminalSidePanel.tsx",
+      "ddx-term-web/messages/en.json",
+      "ddx-term-web/messages/de.json",
+      "ddx-term-web/messages/fr.json"
+    ],
+    "delete": []
+  },
+  "pitfalls": [
+    "FM1: do not leave a useState activeId shadowing the route param — the URL and the mounted client MUST agree, or a stale second XtermClient double-mounts (duplicate WS, doubled output). Derive active id from params ONLY.",
+    "Next.js 16 params are async — `await params` (or use() in a client component wrapper); reading params synchronously throws.",
+    "Every new t() key must exist in en+de+fr in lockstep or the page tree crashes with MISSING_MESSAGE (Cardinal #23); restart dev / clear .next cache before verifying.",
+    "Cardinal #20: grep for an existing breadcrumb primitive before creating TerminalBreadcrumb; extend if one exists.",
+    "EXCLUDE §10 sub-entity/export/print routes — terminals have none (WS1 NOT line).",
+    "Preserve the dispose->new XtermClient->snapshot sequence — re-trigger it on param change, not on setState."
+  ],
+  "validation": "pnpm --filter ddx-term-web typecheck && pnpm --filter ddx-term-web lint && pnpm --filter ddx-term-web test",
+  "acceptance_criteria": [
+    "WHEN a user cold-loads /{locale}/terminal/view/{existing-id} THE SYSTEM SHALL render that terminal's output derived from the route param with no useState activeId (AC1.1, AC1.2, AC1.6).",
+    "WHEN a user selects a terminal THE SYSTEM SHALL navigate via router.push to the view URL rather than setState-only selection (AC1.3).",
+    "WHEN the terminal entity is browsed THE SYSTEM SHALL expose list/grid, list/list, list/timeline routes, an index redirect/empty-state, and a URL-reconstructible breadcrumb (AC1.4, AC1.4b, AC1.4c).",
+    "WHEN the root path is hit THE SYSTEM SHALL redirect locale-aware with no hardcoded /en (AC1.5).",
+    "WHEN an unknown terminalId URL is opened THE SYSTEM SHALL render the not-found path without crashing (AC1.7).",
+    "WHEN a new user-facing string is added THE SYSTEM SHALL have the key present in en, de and fr in lockstep."
+  ],
+  "status": "completed"
+}

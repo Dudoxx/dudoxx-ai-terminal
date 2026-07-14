@@ -15,6 +15,17 @@
  * call restoreSnapshot(snapshotText) to paint the current frame BEFORE the
  * first live frame arrives (RESPONSIVENESS §2.8 — not a full reconnect).
  *
+ * Buffer-until-painted (web-audit MED — connect() resolves before the socket
+ * is truly open, so a fast broker can interleave live frames with the
+ * snapshot write): every attach/reconnect starts UNPAINTED. While unpainted,
+ * incoming `output`/`window-add`/`process-snapshot`/etc. frames are buffered
+ * FIFO instead of written to xterm. The broker's own `snapshot` frame (the
+ * first authoritative frame on a cold attach as of task_002) paints and flips
+ * `painted=true`, then flushes the buffer in order. The REST-fallback path
+ * (`restoreSnapshot`, called directly by the page for older brokers / the
+ * onReconnect repaint) does the same flip+flush, so both paths converge on
+ * one ordering guarantee regardless of which one arrives first.
+ *
  * Dudoxx UG / Acceleate Consulting - Walid Boudabbous <walid@acceleate.com>
  */
 
@@ -94,6 +105,16 @@ export class XtermClient {
   private terminal: Terminal | null = null;
   private ws: WebSocket | null = null;
   private disposed = false;
+
+  /**
+   * Buffer-until-painted guard. `painted` starts false on every attach AND
+   * every reconnect (reset in openWebSocket()); while false, live frames land
+   * in `pendingFrames` (FIFO) instead of xterm. The first of {broker snapshot
+   * frame, restoreSnapshot() REST fallback} to run flips this true and flushes
+   * the buffer in arrival order — whichever wins the race, ordering is correct.
+   */
+  private painted = false;
+  private pendingFrames: ServerFrame[] = [];
 
   /** Reconnect backoff state — reset to 0 on every successful open. */
   private reconnectAttempts = 0;
@@ -188,18 +209,27 @@ export class XtermClient {
    * Paint a snapshot text into the terminal before the first live WS frame.
    * Call immediately after connect() returns and the snapshot fetch resolves
    * (RESPONSIVENESS §2.8 — tab switch = resubscribe + snapshot, not reconnect).
+   * This is the REST-fallback path (older broker without the `snapshot` WS
+   * frame, or the onReconnect repaint) — same painted-flip-and-flush contract
+   * as the WS `snapshot` frame case in handleServerFrame(), so whichever path
+   * runs first wins the race and buffered live frames still flush in order.
    *
    * The broker snapshot comes from `tmux capture-pane -p`, which joins rows with
    * bare LF (`\n`) and no CR. xterm needs CRLF to return the cursor to column 0 —
    * writing bare LF moves DOWN without returning LEFT, producing a right-shifted
    * "staircase". Normalize lone LF → CRLF (without doubling an existing CR) so each
    * snapshot line starts at column 0. Live `%output` frames already carry real CR.
+   *
+   * A disposed client must never paint or flush — checked first, matching the
+   * guard on the WS `snapshot` frame path.
    */
   restoreSnapshot(snapshotText: string): void {
+    if (this.disposed) return;
     if (this.terminal && snapshotText) {
       const normalized = snapshotText.replace(/\r?\n/g, '\r\n');
       this.terminal.write(normalized);
     }
+    this.markPaintedAndFlush();
   }
 
   /**
@@ -247,6 +277,12 @@ export class XtermClient {
     }
     this.ws = null;
 
+    // Drop any frames buffered while unpainted — the `this.disposed` checks in
+    // handleServerFrame()/restoreSnapshot()/markPaintedAndFlush() already stop
+    // a stale client from writing after this point; clearing here just avoids
+    // retaining references to the last-seen frames past dispose.
+    this.pendingFrames = [];
+
     this.terminal?.dispose();
     this.terminal = null;
   }
@@ -256,6 +292,12 @@ export class XtermClient {
   private openWebSocket(): void {
     const url = buildWsUrl(this.terminalId);
     this.callbacks.onStateChange('connecting');
+
+    // Every fresh attach AND every reconnect starts unpainted — a dropped and
+    // resumed socket can race live frames against the reconnect repaint just
+    // as a cold attach can race them against the initial snapshot.
+    this.painted = false;
+    this.pendingFrames = [];
 
     const ws = new WebSocket(url);
     this.ws = ws;
@@ -336,6 +378,33 @@ export class XtermClient {
 
     if (!this.terminal) return;
 
+    // The broker's own `snapshot` frame (task_002) is the authoritative
+    // cold-attach repaint — consume it directly instead of buffering: paint
+    // it via restoreSnapshot() (same CRLF-normalize + painted-flip-and-flush
+    // contract the REST fallback uses), then return. `data` arrives already
+    // decoded to raw bytes by the broker (tmux -CC \033/\015 → ESC/CR) — do
+    // NOT re-decode here, restoreSnapshot only normalizes bare-LF → CRLF.
+    if (frame.type === 'snapshot') {
+      this.restoreSnapshot(frame.data);
+      return;
+    }
+
+    // Buffer-until-painted: while nothing has painted yet (no snapshot frame
+    // and no REST-fallback restoreSnapshot() call has landed), queue every
+    // other live frame FIFO instead of writing it — writing here would race
+    // ahead of the snapshot and garble scrollback (web-audit MED).
+    if (!this.painted) {
+      this.pendingFrames.push(frame);
+      return;
+    }
+
+    this.writeFrame(frame);
+  }
+
+  /** Apply one already-ordered frame to the live terminal / callbacks. */
+  private writeFrame(frame: ServerFrame): void {
+    if (!this.terminal) return;
+
     switch (frame.type) {
       case 'output':
         // Write bytes directly — xterm handles ANSI escapes.
@@ -362,12 +431,37 @@ export class XtermClient {
         // display — the xterm instance itself needs no action.
         break;
 
+      case 'snapshot':
+        // Never reaches writeFrame(): handleServerFrame() intercepts and
+        // routes every `snapshot` frame through restoreSnapshot() directly
+        // (see above) — it does not pass through the pending buffer, since it
+        // IS the thing that flushes the buffer. Listed for switch exhaustiveness.
+        break;
+
       default: {
         // Exhaustive check — TypeScript ensures this is unreachable if a new
         // frame type is added to the contract without updating this switch.
         const _exhaustive: never = frame;
         void _exhaustive;
       }
+    }
+  }
+
+  /**
+   * Flip painted=true and flush any frames buffered while unpainted, in FIFO
+   * order. Shared by both convergence paths (the WS `snapshot` frame via
+   * handleServerFrame(), and the REST-fallback `restoreSnapshot()` call) so
+   * ordering is correct regardless of which one wins the race. A disposed
+   * client never flushes — checked by both callers before this runs, but
+   * re-checked here too since this is the one place that mutates `painted`.
+   */
+  private markPaintedAndFlush(): void {
+    if (this.disposed) return;
+    this.painted = true;
+    const buffered = this.pendingFrames;
+    this.pendingFrames = [];
+    for (const frame of buffered) {
+      this.writeFrame(frame);
     }
   }
 

@@ -28,27 +28,29 @@
   --color-surface-muted:     oklch(0.16 0.015 264);  /* subtle inset */
   --color-elevated:          oklch(0.22 0.025 264);  /* raised card */
 
-  /* ── Primary (Dudoxx navy/blue) ────────────────────────────────────── */
-  --color-primary:           oklch(0.55 0.20 264);
-  --color-primary-foreground: oklch(0.98 0.005 264);
+  /* ── Primary + Accent (Toucan Signal terracotta — D-014, ONE brand hue) ─ */
+  --color-primary:           oklch(0.62 0.16 47);
+  --color-primary-foreground: oklch(0.98 0.005 47);
+  --color-accent:            oklch(0.62 0.16 47);
+  --color-accent-foreground: oklch(0.98 0.005 47);
 
-  /* ── Accent (terracotta) ───────────────────────────────────────────── */
-  --color-accent:            oklch(0.62 0.16 33);
-  --color-accent-foreground: oklch(0.98 0.005 33);
+  /* ── Link (cobalt — interactive signal: links, focus, ring, info) ───── */
+  --color-link:              oklch(0.68 0.16 255);
+  --color-link-foreground:   oklch(0.98 0.005 255);
 
-  /* ── Semantic status ───────────────────────────────────────────────── */
+  /* ── Semantic status (success is SUCCESS-ONLY, never decorative) ────── */
   --color-success:           oklch(0.65 0.18 142);
   --color-warning:           oklch(0.72 0.17 85);
   --color-danger:            oklch(0.57 0.22 27);
-  --color-info:              oklch(0.62 0.18 230);
+  --color-info:              oklch(0.68 0.16 255);
 
   /* ── Muted / subdued ───────────────────────────────────────────────── */
   --color-muted:             oklch(0.22 0.015 264);
   --color-muted-foreground:  oklch(0.62 0.02 264);
 
-  /* ── Border / ring ─────────────────────────────────────────────────── */
+  /* ── Border / ring (ring = cobalt link axis, per §9a) ────────────────── */
   --color-border:            oklch(0.28 0.02 264);
-  --color-ring:              oklch(0.55 0.20 264);
+  --color-ring:              oklch(0.68 0.16 255);
 
   /* ── Tab chrome ────────────────────────────────────────────────────── */
   --color-tab-active:        oklch(0.22 0.025 264);
@@ -58,15 +60,8 @@
   /* ── xterm container ───────────────────────────────────────────────── */
   --color-term-bg:           oklch(0.10 0.015 264);
 
-  /* ── xterm-js hex mirrors (xterm cannot parse OKLCH/CSS vars) ──────── */
-  /* These are the only raw hex values allowed — they mirror @theme tokens  */
-  /* and are consumed exclusively by XtermClient.buildTheme() in TS.       */
-  --xterm-bg-hex:            #18192b;   /* mirrors --color-term-bg */
-  --xterm-fg-hex:            #e8e9f0;   /* mirrors --color-foreground */
-  --xterm-cursor-hex:        #7c8aff;   /* mirrors --color-primary (approx) */
-  --xterm-selection-hex:     #3a3d60;   /* mirrors --color-surface */
-
-  /* ── Font ──────────────────────────────────────────────────────────── */
+  /* ── Font (three-face stack: display + UI + data) ────────────────────── */
+  --font-display: var(--font-bricolage), 'Inter', system-ui, sans-serif;
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }

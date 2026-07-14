@@ -18,8 +18,14 @@ export async function termPs(ctx: ToolContext, input: TermPsInput): Promise<Term
   const resolved = await ctx.resolver.resolve(terminalId);
 
   const panePid = await ctx.tmux.panePid(resolved.windowId);
+  // fgPid stays the direct foreground child (depth-1) — its meaning is
+  // "what tmux would foreground next," unchanged by this D4 alignment.
   const children = await ctx.tmux.childPids(panePid);
-  const rows = await ctx.tmux.psRows([panePid, ...children]);
+  // processes[] goes FULL-TREE (descendantPids) so grandchildren appear —
+  // matches term_signal's tree boundary (term-signal.tool.ts), so an agent
+  // inspecting via term_ps sees every pid term_signal would actually accept.
+  const descendants = await ctx.tmux.descendantPids(panePid);
+  const rows = await ctx.tmux.psRows([panePid, ...descendants]);
 
   const processes: ProcessInfo[] = rows.map((r) => ({
     pid: r.pid,

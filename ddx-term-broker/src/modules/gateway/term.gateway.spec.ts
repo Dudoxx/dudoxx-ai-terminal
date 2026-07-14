@@ -19,6 +19,10 @@ import { SessionService } from '../session/session.service';
 import { ControlModeAttach } from '../control-mode/control-mode.attach';
 import { EXEC_RUNNER } from '../session/session.service';
 import {
+  TerminalService,
+  type SnapshotWithScrollbackResult,
+} from '../terminal/terminal.service';
+import {
   toTerminalId,
   type TerminalId,
   type WindowId,
@@ -59,6 +63,36 @@ class StubControlModeAttach {
   stop(): void { /* no-op */ }
 }
 
+/**
+ * Stub TerminalService for the cold-attach snapshot push. Resolves a fixed
+ * snapshot by default (mirrors production: every subscribe gets exactly one
+ * `snapshot` frame). Routing/coalescing tests below use `liveMessages()` to
+ * strip that leading snapshot frame before asserting on live-dispatch
+ * behavior — the snapshot push and live routing are orthogonal concerns.
+ */
+class StubTerminalService {
+  resolveSnapshot:
+    | ((terminalId: TerminalId) => Promise<SnapshotWithScrollbackResult>)
+    | undefined;
+
+  async snapshotWithScrollback(
+    rawId: string,
+  ): Promise<SnapshotWithScrollbackResult> {
+    const terminalId = toTerminalId(rawId);
+    if (this.resolveSnapshot) {
+      return this.resolveSnapshot(terminalId);
+    }
+    return {
+      terminalId,
+      content: 'stub-snapshot',
+      cols: 120,
+      rows: 30,
+      capturedAt: Date.now(),
+      scrollbackLines: 500,
+    };
+  }
+}
+
 /** Minimal WebSocket stub that records sent messages. */
 function makeSocket(): { socket: WebSocket; messages: string[] } {
   const messages: string[] = [];
@@ -71,18 +105,35 @@ function makeSocket(): { socket: WebSocket; messages: string[] } {
   return { socket, messages };
 }
 
+/**
+ * Strip the leading cold-attach `snapshot` frame(s) from a recorded messages
+ * array so routing/coalescing assertions can focus on LIVE dispatch, which
+ * is the orthogonal concern those tests exist to cover.
+ */
+function liveMessages(messages: string[]): string[] {
+  return messages.filter((m) => {
+    const parsed = JSON.parse(m) as { type?: string };
+    return parsed.type !== 'snapshot';
+  });
+}
+
 // ── Module factory ───────────────────────────────────────────────────────────
 
-async function buildGateway(): Promise<TermGateway> {
+async function buildGateway(): Promise<{
+  gateway: TermGateway;
+  terminalService: StubTerminalService;
+}> {
+  const terminalService = new StubTerminalService();
   const module = await Test.createTestingModule({
     providers: [
       TermGateway,
       { provide: SessionService, useClass: StubSessionService },
       { provide: ControlModeAttach, useClass: StubControlModeAttach },
+      { provide: TerminalService, useValue: terminalService },
       { provide: EXEC_RUNNER, useValue: async () => ({ stdout: '', stderr: '' }) },
     ],
   }).compile();
-  return module.get(TermGateway);
+  return { gateway: module.get(TermGateway), terminalService };
 }
 
 /** Simulate a WS connection for a given terminalId. */
@@ -97,9 +148,25 @@ function connectSocket(
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('TermGateway › per-terminal routing (RESPONSIVENESS §2.8)', () => {
+describe('TermGateway › restore-on-attach ordering (task_002 reciprocal contract)', () => {
+  it('sends the snapshot frame FIRST, before any live output frame, on attach', async () => {
+    const { gateway: gw } = await buildGateway();
+    const { messages } = connectSocket(gw, TERM_A);
+
+    // A live frame dispatched immediately after attach must never overtake the
+    // initial snapshot — the web consumer's buffer-until-painted guard relies on
+    // the snapshot being the authoritative first paint (see ddx-term-web
+    // xterm-client.ts). Guarding by contract, not by "in practice" ordering.
+    gw.dispatchFrame({ type: 'output', terminalId: TERM_A, data: 'live-1', withAnsi: true });
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(messages.length).toBeGreaterThanOrEqual(1);
+    const first = JSON.parse(messages[0] ?? '{}') as { type: string };
+    expect(first.type).toBe('snapshot');
+  });
+
   it('dispatches an output frame only to subscribers of the matching terminalId', async () => {
-    const gw = await buildGateway();
+    const { gateway: gw } = await buildGateway();
     const { messages: msgsA } = connectSocket(gw, TERM_A);
     const { messages: msgsB } = connectSocket(gw, TERM_B);
 
@@ -108,39 +175,40 @@ describe('TermGateway › per-terminal routing (RESPONSIVENESS §2.8)', () => {
     // Give coalesce timer a chance to fire.
     await new Promise((r) => setTimeout(r, 30));
 
-    expect(msgsA).toHaveLength(1);
-    expect(msgsB).toHaveLength(0);
-    const parsed = JSON.parse(msgsA[0] ?? '{}') as { terminalId: string; data: string };
+    const liveA = liveMessages(msgsA);
+    expect(liveA).toHaveLength(1);
+    expect(liveMessages(msgsB)).toHaveLength(0);
+    const parsed = JSON.parse(liveA[0] ?? '{}') as { terminalId: string; data: string };
     expect(parsed.terminalId).toBe('term-a');
     expect(parsed.data).toBe('hello');
   });
 
   it('a frame for terminal B is NOT delivered to subscribers of terminal A', async () => {
-    const gw = await buildGateway();
+    const { gateway: gw } = await buildGateway();
     const { messages: msgsA } = connectSocket(gw, TERM_A);
     const { messages: msgsB } = connectSocket(gw, TERM_B);
 
     gw.dispatchFrame({ type: 'output', terminalId: TERM_B, data: 'from-b', withAnsi: false });
     await new Promise((r) => setTimeout(r, 30));
 
-    expect(msgsB).toHaveLength(1);
-    expect(msgsA).toHaveLength(0);
+    expect(liveMessages(msgsB)).toHaveLength(1);
+    expect(liveMessages(msgsA)).toHaveLength(0);
   });
 
   it('broadcasts to ALL subscribers of the same terminalId', async () => {
-    const gw = await buildGateway();
+    const { gateway: gw } = await buildGateway();
     const { messages: msgs1 } = connectSocket(gw, TERM_A);
     const { messages: msgs2 } = connectSocket(gw, TERM_A);
 
     gw.dispatchFrame({ type: 'output', terminalId: TERM_A, data: 'broadcast', withAnsi: true });
     await new Promise((r) => setTimeout(r, 30));
 
-    expect(msgs1).toHaveLength(1);
-    expect(msgs2).toHaveLength(1);
+    expect(liveMessages(msgs1)).toHaveLength(1);
+    expect(liveMessages(msgs2)).toHaveLength(1);
   });
 
   it('coalesces rapid output frames into one send within the 16ms window', async () => {
-    const gw = await buildGateway();
+    const { gateway: gw } = await buildGateway();
     const { messages } = connectSocket(gw, TERM_A);
 
     gw.dispatchFrame({ type: 'output', terminalId: TERM_A, data: 'chunk1', withAnsi: true });
@@ -150,13 +218,14 @@ describe('TermGateway › per-terminal routing (RESPONSIVENESS §2.8)', () => {
     await new Promise((r) => setTimeout(r, 30));
 
     // All three chunks coalesced into one send.
-    expect(messages).toHaveLength(1);
-    const parsed = JSON.parse(messages[0] ?? '{}') as { data: string };
+    const live = liveMessages(messages);
+    expect(live).toHaveLength(1);
+    const parsed = JSON.parse(live[0] ?? '{}') as { data: string };
     expect(parsed.data).toBe('chunk1chunk2chunk3');
   });
 
   it('sends non-output frames immediately (no coalescing)', async () => {
-    const gw = await buildGateway();
+    const { gateway: gw } = await buildGateway();
     const { messages } = connectSocket(gw, TERM_A);
 
     gw.dispatchFrame({
@@ -175,7 +244,7 @@ describe('TermGateway › per-terminal routing (RESPONSIVENESS §2.8)', () => {
 
 describe('TermGateway › connection lifecycle', () => {
   it('rejects a WS connection with no terminalId in the URL', async () => {
-    const gw = await buildGateway();
+    const { gateway: gw } = await buildGateway();
     const { socket, messages } = makeSocket();
     let closed = false;
     (socket as unknown as { close: (code: number, reason: string) => void }).close = (code) => {
@@ -189,7 +258,7 @@ describe('TermGateway › connection lifecycle', () => {
   });
 
   it('removes client from subscriber set on disconnect', async () => {
-    const gw = await buildGateway();
+    const { gateway: gw } = await buildGateway();
     const { socket, messages } = connectSocket(gw, TERM_A);
 
     gw.handleDisconnect(socket);
@@ -197,7 +266,7 @@ describe('TermGateway › connection lifecycle', () => {
     // After disconnect, frames are no longer delivered.
     gw.dispatchFrame({ type: 'output', terminalId: TERM_A, data: 'post-disc', withAnsi: true });
     await new Promise((r) => setTimeout(r, 30));
-    expect(messages).toHaveLength(0);
+    expect(liveMessages(messages)).toHaveLength(0);
   });
 });
 
@@ -207,7 +276,7 @@ describe('TermGateway › AC#12 cross-terminal isolation (HIGH-1)', () => {
    * Expected: keystrokes are NOT sent to B; socket is closed with code 1008.
    */
   it('rejects an input frame whose terminalId differs from the subscribed terminalId', async () => {
-    const gw = await buildGateway();
+    const { gateway: gw } = await buildGateway();
 
     // Socket subscribes to TERM_A.
     const { socket: socketA, messages: msgsA } = connectSocket(gw, TERM_A);
@@ -246,14 +315,14 @@ describe('TermGateway › AC#12 cross-terminal isolation (HIGH-1)', () => {
     expect(closedReason).toBe('terminalId mismatch');
 
     // No keystroke frame delivered to terminal B subscribers.
-    expect(msgsB).toHaveLength(0);
+    expect(liveMessages(msgsB)).toHaveLength(0);
 
     // No frame sent to terminal A subscribers either.
-    expect(msgsA).toHaveLength(0);
+    expect(liveMessages(msgsA)).toHaveLength(0);
   });
 
   it('accepts a valid input frame whose terminalId matches the subscribed terminalId', async () => {
-    const gw = await buildGateway();
+    const { gateway: gw } = await buildGateway();
     const { socket: socketA } = connectSocket(gw, TERM_A);
 
     let closedCode: number | undefined;

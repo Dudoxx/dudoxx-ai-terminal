@@ -1,0 +1,59 @@
+{
+  "id": "005",
+  "shard": "05-web-design-tokens.md",
+  "subject": "Toucan Signal design-token compliance (globals.css + i18n type escapes)",
+  "category": "frontend",
+  "agent": "ddx-term-web-specialist",
+  "depends_on": [],
+  "parallel_group": "A",
+  "readBeforeStart": [
+    "plans/terminal-ui-refactor/_invariants.md",
+    "ddx-term-web/CLAUDE.md"
+  ],
+  "skill_refs": [
+    "ddx-nextjs-visuals",
+    "dudoxx-branding",
+    "typescript-strict"
+  ],
+  "context_files": [
+    "plans/terminal-ui-refactor/_invariants.md",
+    "ddx-term-web/CLAUDE.md",
+    "findings/2026-07-14_terminal-ui-refactor/web-audit.md",
+    "ddx-term-web/src/app/globals.css",
+    "ddx-term-web/src/components/term/AppearanceControls.tsx"
+  ],
+  "context": "web-audit: globals.css:31-37,51 has token drift — --color-primary and --color-accent are DIFFERENT hues; Toucan Signal (D-014, dudoxx-design-system.md §9a) requires --color-primary = --color-accent = ONE terracotta, plus a cobalt --color-link axis (= --color-ring / --color-info), green = success-only. globals.css:64-67 has a DEAD --xterm-*-hex mirror block orphaned by appearance.ts — DELETE it (appearance.ts owns the raw-hex xterm theme, the ONE sanctioned exemption; do NOT touch appearance.ts values). Add a Bricolage Grotesque display face via next/font/google as --font-display (keep Inter for UI/body + JetBrains Mono for terminal data — the three-face stack). AppearanceControls.tsx:94,138 uses `t(`...` as never)` to escape i18n typing — replace with a typed keyof-union key (build a const map of allowed keys typed as a union, so t() resolves without `as never`). Verify: no gradients, no container borders (shadow-elev-N only), semantic @theme tokens throughout, in BOTH light and dark. This shard is parallel-safe with the WS4->WS1->WS3 chain (touches only globals.css + AppearanceControls, not routing or xterm-client).",
+  "steps": [
+    "Read web-audit.md + globals.css:31-67 to see the primary/accent split, the cobalt gap, and the dead --xterm-*-hex block.",
+    "Unify --color-primary and --color-accent to the ONE Toucan Signal terracotta OKLCH (hues within +-2). Add a cobalt --color-link token aliased to --color-ring / --color-info per §9a. Keep green as success-only.",
+    "Delete the dead --xterm-*-hex mirror block (globals.css:64-67). Confirm appearance.ts is unaffected (it is the real xterm theme source; leave its raw hex untouched).",
+    "Declare Bricolage Grotesque via next/font/google, expose it as --font-display in globals.css / the layout font wiring; keep Inter (UI) + JetBrains Mono (data).",
+    "In AppearanceControls.tsx replace both `t(... as never)` escapes with a typed keyof-union key map so t() type-checks with zero `as never` and zero any.",
+    "Grep the src tree for raw palette utilities / gradients / container-border separators (excluding appearance.ts) and replace any with semantic tokens / shadow elevation.",
+    "Run web typecheck/lint/test; visually confirm light+dark parity."
+  ],
+  "files": {
+    "create": [],
+    "modify": [
+      "ddx-term-web/src/app/globals.css",
+      "ddx-term-web/src/app/[locale]/layout.tsx",
+      "ddx-term-web/src/components/term/AppearanceControls.tsx"
+    ],
+    "delete": []
+  },
+  "pitfalls": [
+    "FM3: NEVER rewire the xterm canvas theme to the new OKLCH @theme tokens — xterm ITheme cannot parse OKLCH -> blank/black terminal. appearance.ts raw hex is the ONE sanctioned exemption; leave it untouched and only remove the DEAD globals.css mirror.",
+    "Bricolage must load via next/font/google (self-hosted), not a raw <link> (avoids layout shift + CSP issues).",
+    "Removing `as never` must not reintroduce any — use a typed keyof union, not a cast.",
+    "No gradients, no container borders as separators (shadow-elev-N only) — design-system §25."
+  ],
+  "validation": "pnpm --filter ddx-term-web typecheck && pnpm --filter ddx-term-web lint && pnpm --filter ddx-term-web test",
+  "acceptance_criteria": [
+    "WHEN globals.css tokens are resolved THE SYSTEM SHALL have --color-primary and --color-accent at the same terracotta hue (within +-2) and a cobalt --color-link present (AC2.1, AC2.2).",
+    "WHEN the display face is inspected THE SYSTEM SHALL declare Bricolage as --font-display alongside Inter and JetBrains Mono (AC2.3).",
+    "WHEN globals.css is scanned THE SYSTEM SHALL contain no --xterm-*-hex mirror block (AC2.4).",
+    "WHEN components/term is scanned THE SYSTEM SHALL contain no `as never` i18n escapes and no raw palette utilities/gradients/container borders outside appearance.ts (AC2.5, AC2.6).",
+    "WHEN the theme is toggled THE SYSTEM SHALL render correctly in both light and dark with the xterm canvas intact (AC2.7)."
+  ],
+  "status": "completed"
+}

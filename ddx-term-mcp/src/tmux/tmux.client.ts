@@ -30,6 +30,35 @@ export class TmuxExecError extends Error {
   }
 }
 
+/**
+ * True when an execFile rejection is exit code 1 — for `pgrep`/`ps -p`, this is
+ * the documented "no processes matched" outcome, not a genuine fault (ENOENT,
+ * bad flag, dead socket surface as other codes / a thrown non-exit error and
+ * must NOT be swallowed — see childPids/psRows below).
+ */
+function isNoMatchExit(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && (err as { code: unknown }).code === 1;
+}
+
+/**
+ * Shared exec-wrap: run `tmux <argv>` verbatim (caller owns full flag ordering,
+ * including any GLOBAL flag that must precede `-S`) and wrap a non-zero exit
+ * into TmuxExecError with argv+stderr. Both the central `tmux()` helper (which
+ * always prefixes `-S <socket>`) and `newSession` (which must prefix `-f
+ * /dev/null` FIRST, before `-S`) route through this single try/catch so the
+ * error shape never drifts between the two call sites.
+ */
+async function execTmux(argv: readonly string[]): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync('tmux', argv);
+    return stdout;
+  } catch (err) {
+    const stderr =
+      typeof err === 'object' && err !== null && 'stderr' in err ? String((err as { stderr: unknown }).stderr) : '';
+    throw new TmuxExecError(['tmux', ...argv], stderr, err);
+  }
+}
+
 /** Config the client is constructed with (resolved from env by the server). */
 export interface TmuxClientConfig {
   /** tmux `-S` socket path (the shared session's socket). */
@@ -79,16 +108,7 @@ export class TmuxClient {
   /** Run `tmux -S <socket> <args…>`; throw TmuxExecError on non-zero exit. */
   private async tmux(args: readonly string[]): Promise<string> {
     const argv = ['-S', this.config.socket, ...args];
-    try {
-      const { stdout } = await execFileAsync('tmux', argv);
-      return stdout;
-    } catch (err) {
-      const stderr =
-        typeof err === 'object' && err !== null && 'stderr' in err
-          ? String((err as { stderr: unknown }).stderr)
-          : '';
-      throw new TmuxExecError(['tmux', ...argv], stderr, err);
-    }
+    return execTmux(argv);
   }
 
   // ── session lifecycle (used by the broker/e2e harness, not a verb) ─────────
@@ -109,7 +129,9 @@ export class TmuxClient {
    */
   async newSession(cols: number, lines: number): Promise<void> {
     // -f /dev/null is a tmux GLOBAL flag (precedes the command), so it cannot go
-    // through `tmux()` which always injects -S first. Exec directly.
+    // through the private `tmux()` method (which always injects -S first) —
+    // build the full argv here, with -f BEFORE -S, and route it through the
+    // same shared execTmux() error-wrap the private `tmux()` method uses.
     const argv = [
       '-f',
       '/dev/null',
@@ -124,15 +146,7 @@ export class TmuxClient {
       '-y',
       String(lines),
     ];
-    try {
-      await execFileAsync('tmux', argv);
-    } catch (err) {
-      const stderr =
-        typeof err === 'object' && err !== null && 'stderr' in err
-          ? String((err as { stderr: unknown }).stderr)
-          : '';
-      throw new TmuxExecError(['tmux', ...argv], stderr, err);
-    }
+    await execTmux(argv);
     // Pin the default size so clientless windows have defined dimensions.
     await this.tmux(['set-option', '-g', 'default-size', `${cols}x${lines}`]);
   }
@@ -268,17 +282,23 @@ export class TmuxClient {
 
   /** `pgrep -P <panePid>` → direct child pids of the pane shell. Empty = none. */
   async childPids(panePid: number): Promise<number[]> {
+    const argv = ['-P', String(panePid)];
     try {
-      const { stdout } = await execFileAsync('pgrep', ['-P', String(panePid)]);
+      const { stdout } = await execFileAsync('pgrep', argv);
       return stdout
         .split('\n')
         .map((l) => l.trim())
         .filter((l) => l.length > 0)
         .map((l) => Number.parseInt(l, 10))
         .filter((n) => Number.isInteger(n));
-    } catch {
-      // pgrep exits 1 when no processes match — that is "no children", not error.
-      return [];
+    } catch (err) {
+      // pgrep exits 1 when no processes match — that is "no children", not a
+      // fault. Any OTHER exit code or a thrown non-exit error (ENOENT, dead
+      // socket) is a genuine failure and must surface, not report zero pids.
+      if (isNoMatchExit(err)) return [];
+      const stderr =
+        typeof err === 'object' && err !== null && 'stderr' in err ? String((err as { stderr: unknown }).stderr) : '';
+      throw new TmuxExecError(['pgrep', ...argv], stderr, err);
     }
   }
 
@@ -311,8 +331,9 @@ export class TmuxClient {
   /** `ps -o pid,ppid,stat,command -p <pids…>` → process rows for the given pids. */
   async psRows(pids: readonly number[]): Promise<PsRow[]> {
     if (pids.length === 0) return [];
+    const argv = ['-o', 'pid=,ppid=,stat=,command=', '-p', pids.join(',')];
     try {
-      const { stdout } = await execFileAsync('ps', ['-o', 'pid=,ppid=,stat=,command=', '-p', pids.join(',')]);
+      const { stdout } = await execFileAsync('ps', argv);
       return stdout
         .split('\n')
         .map((l) => l.trim())
@@ -328,8 +349,14 @@ export class TmuxClient {
             command: match[4] ?? '',
           };
         });
-    } catch {
-      return [];
+    } catch (err) {
+      // ps exits 1 when none of the requested pids are still alive (e.g. the
+      // process died between the pgrep walk and this call) — expected, not a
+      // fault. Any other exit code or thrown non-exit error surfaces.
+      if (isNoMatchExit(err)) return [];
+      const stderr =
+        typeof err === 'object' && err !== null && 'stderr' in err ? String((err as { stderr: unknown }).stderr) : '';
+      throw new TmuxExecError(['ps', ...argv], stderr, err);
     }
   }
 
