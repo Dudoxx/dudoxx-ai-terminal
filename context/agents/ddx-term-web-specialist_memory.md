@@ -9,3 +9,5 @@
 2026-06-28 · [TERM-WEB] · RULE · Use `useSyncExternalStore` for cross-tab synchronization of UI state like terminal appearance.
 2026-06-28 · [TERM-WEB] · RULE · Centralize appearance logic (themes, fonts, sizes) in a dedicated module (`appearance.ts`).
 2026-06-28 · [TERM-WEB] · DISCOVERY · xterm's `ITheme` cannot parse OKLCH; raw hex is an acceptable exemption for custom themes.
+2026-07-14 · [CONTRACT] · RULE · New WS frame: contract package FIRST, then producer shard + a consumer shard (buffer-until-painted), closed by an exhaustive-`never` switch that forces consumer wiring. (aa064a2)
+2026-07-14 · [META] · PITFALL · Grep-based AC/design checks false-positive on comments/docstrings — verify against the actual diff hunks, not a raw grep hit count. (aa064a2)

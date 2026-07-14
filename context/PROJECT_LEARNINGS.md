@@ -58,3 +58,15 @@
   2026-07-10 · [TERM-BROKER] · DISCOVERY · `PID_NOT_IN_TERMINAL` error occurs when a PID is not part of the specified terminal's process tree.
   2026-07-10 · [TERM-MCP] · RULE · Use `.env` files for configuration overrides, respecting precedence.
   2026-07-10 · [GENERAL] · PITFALL · Manually set `DDX_TERM_BROKER_URL` must include `/api/v1` prefix or registry resolution fails.
+
+- 2026-07-10 · aa064a2 · domains:  term-broker term-mcp meta. Net-new lessons: 5.
+  2026-07-10 · [TERM-BROKER] · PITFALL · Reconnecting control-mode without stopping PTYs leaks masters.
+  2026-07-10 · [TERM-BROKER] · RULE · Always reap PTY masters when closing terminals to prevent leaks.
+  2026-07-10 · [TERM-BROKER] · RULE · Cap concurrent terminals to avoid resource exhaustion.
+  2026-07-10 · [TERM-MCP] · RULE · Repair supervised production stack launch logic.
+  2026-07-10 · [GENERAL] · DISCOVERY · `node-pty`'s `spawn` function must be mocked before the module under test imports it.
+
+- 2026-07-14 · aa064a2 · domains: term-web term-broker term-mcp contract meta. Net-new lessons: 3.
+  2026-07-14 · [CONTRACT] · RULE · New WS/cross-service frame: add to the shared contract package FIRST, then a producer shard + a consumer shard, closed by an exhaustive-`never` switch so the compiler forces every consumer to handle it.
+  2026-07-14 · [TERM-BROKER] · RULE · Restore-on-attach must be byte-fidelity (raw snapshot concatenation, no inserted whitespace) — verify against the broker's raw capture, not eyeballed terminal output.
+  2026-07-14 · [META] · PITFALL · Grep-based AC/design verification false-positives on comments/docstrings (`as never`, `window.confirm` in a doc string) — check the actual diff hunks, not a raw grep hit count.
